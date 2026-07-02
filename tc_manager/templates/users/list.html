@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}사용자 관리{% endblock %}
+{% block page_title %}👥 사용자 관리{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>팀원 목록 <span style="color:#6E6E73;font-weight:400;font-size:13px;">총 {{ users|length }}명</span></h2>
+        <a href="{{ url_for('users.add_user') }}" class="btn btn-primary">
+            ＋ 팀원 추가
+        </a>
+    </div>
+
+    <div class="table-wrap">
+        {% if users %}
+        <table>
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>역할</th>
+                    <th>장소</th>
+                    <th>상태</th>
+                    <th>등록일</th>
+                    <th style="text-align:right;">작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>
+                        <strong>{{ user.name }}</strong>
+                        {% if user.id == session.user_id %}
+                        <span style="font-size:10px;color:#1428A0;margin-left:4px;">(나)</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.role == 'admin' %}
+                        <span class="badge badge-admin">👑 관리자</span>
+                        {% else %}
+                        <span class="badge badge-member">팀원</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.location == 'DSR' %}
+                        <span class="badge badge-loc1">📍 DSR</span>
+                        {% else %}
+                        <span class="badge badge-loc2">📍 Tera</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_active %}
+                        <span class="badge badge-active">● 활성</span>
+                        {% else %}
+                        <span class="badge badge-inactive">○ 비활성</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted">{{ user.created_at[:10] if user.created_at else '-' }}</td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:6px;justify-content:flex-end;">
+                            <a href="{{ url_for('users.edit_user', user_id=user.id) }}"
+                               class="btn btn-secondary btn-sm">✏️ 수정</a>
+
+                            <!-- 활성/비활성 전환 -->
+                            <form method="POST" action="{{ url_for('users.toggle_user', user_id=user.id) }}"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-secondary btn-sm"
+                                        onclick="return confirm('상태를 변경할까요?')">
+                                    {% if user.is_active %}⏸ 비활성화{% else %}▶ 활성화{% endif %}
+                                </button>
+                            </form>
+
+                            <!-- 삭제 (자기 자신 삭제 불가) -->
+                            {% if user.id != session.user_id %}
+                            <form method="POST" action="{{ url_for('users.delete_user', user_id=user.id) }}"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                        onclick="return confirm('{{ user.name }} 님을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.')">
+                                    🗑️ 삭제
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">👥</div>
+            <p>등록된 팀원이 없습니다.</p>
+            <a href="{{ url_for('users.add_user') }}" class="btn btn-primary" style="margin-top:14px;">
+                ＋ 첫 번째 팀원 추가
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 안내 -->
+<div style="margin-top:16px;padding:14px 18px;background:#EEF1FB;border-radius:10px;font-size:12.5px;color:#1428A0;">
+    ℹ️ <strong>참고:</strong> 비활성화된 팀원은 사용자 선택 화면에 나타나지 않습니다.
+    로그인 없이 이름 선택으로 접속하므로, 퇴사자나 임시 비활성은 삭제 대신 비활성화를 사용하세요.
+</div>
+{% endblock %}

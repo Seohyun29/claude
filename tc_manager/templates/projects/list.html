@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}프로젝트 관리{% endblock %}
+{% block page_title %}📁 프로젝트 관리{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>프로젝트 목록
+            <span style="color:#6E6E73;font-weight:400;font-size:13px;">총 {{ projects|length }}개</span>
+        </h2>
+        <a href="{{ url_for('projects.add_project') }}" class="btn btn-primary">＋ 프로젝트 추가</a>
+    </div>
+
+    <div class="table-wrap">
+        {% if projects %}
+        <table>
+            <thead>
+                <tr>
+                    <th>프로젝트명</th>
+                    <th>설명</th>
+                    <th style="text-align:center;">장비 수</th>
+                    <th style="text-align:center;">상태</th>
+                    <th>등록일</th>
+                    <th style="text-align:right;">작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in projects %}
+                <tr>
+                    <td>
+                        <strong style="font-size:14px;">{{ p.name }}</strong>
+                    </td>
+                    <td class="text-muted">{{ p.description or '-' }}</td>
+                    <td style="text-align:center;">
+                        {% if p.board_count > 0 %}
+                        <a href="{{ url_for('projects.list_boards', project_id=p.id) }}"
+                           style="color:#1428A0;font-weight:700;text-decoration:none;">
+                            🖥️ {{ p.active_board_count }} / {{ p.board_count }}
+                        </a>
+                        {% else %}
+                        <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        {% if p.is_active %}
+                        <span class="badge badge-active">● 활성</span>
+                        {% else %}
+                        <span class="badge badge-inactive">○ 비활성</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted">{{ p.created_at[:10] if p.created_at else '-' }}</td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:6px;justify-content:flex-end;">
+                            <a href="{{ url_for('projects.list_boards', project_id=p.id) }}"
+                               class="btn btn-secondary btn-sm">🖥️ 장비관리</a>
+                            <a href="{{ url_for('projects.edit_project', project_id=p.id) }}"
+                               class="btn btn-secondary btn-sm">✏️ 수정</a>
+                            <form method="POST"
+                                  action="{{ url_for('projects.delete_project', project_id=p.id) }}"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirm('프로젝트 [{{ p.name }}]를 삭제할까요?\n장비가 있으면 삭제되지 않습니다.')">
+                                    🗑️
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">📁</div>
+            <p>등록된 프로젝트가 없습니다.</p>
+            <a href="{{ url_for('projects.add_project') }}"
+               class="btn btn-primary" style="margin-top:14px;">＋ 첫 번째 프로젝트 추가</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 안내 -->
+<div style="margin-top:16px;padding:14px 18px;background:#EEF1FB;
+            border-radius:10px;font-size:12.5px;color:#1428A0;">
+    ℹ️ <strong>장비 수</strong>는 <em>활성장비 / 전체장비</em> 형식입니다.
+    장비 관리 버튼을 눌러 해당 프로젝트의 테스트 보드를 관리하세요.
+</div>
+{% endblock %}

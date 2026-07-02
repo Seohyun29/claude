@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{% if action=='write' %}글쓰기{% else %}글수정{% endif %}{% endblock %}
+{% block page_title %}{% if action=='write' %}✏️ 글쓰기{% else %}✏️ 글수정{% endif %}{% endblock %}
+
+{% block content %}
+<div style="max-width:860px;">
+    <div class="card">
+        <div class="card-header">
+            <h2>{% if action=='write' %}새 게시글 작성{% else %}게시글 수정{% endif %}</h2>
+            <a href="{{ url_for('board.list_posts') }}" class="btn btn-secondary btn-sm">← 목록</a>
+        </div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+
+                <!-- 구분 -->
+                <div class="form-group">
+                    <label class="form-label">구분</label>
+                    <div style="display:flex;gap:16px;padding:8px 0;">
+                        <label style="display:flex;align-items:center;gap:8px;
+                                      cursor:pointer;font-size:14px;">
+                            <input type="radio" name="category" value="general"
+                                   {% if not post or post.category=='general' %}checked{% endif %}>
+                            💬 일반글
+                        </label>
+                        {% if session.role == 'admin' %}
+                        <label style="display:flex;align-items:center;gap:8px;
+                                      cursor:pointer;font-size:14px;">
+                            <input type="radio" name="category" value="notice"
+                                   {% if post and post.category=='notice' %}checked{% endif %}>
+                            📢 공지 (관리자 전용)
+                        </label>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 제목 -->
+                <div class="form-group">
+                    <label class="form-label">제목 *</label>
+                    <input type="text" name="title" class="form-control"
+                           value="{{ post.title if post else '' }}"
+                           placeholder="제목을 입력해주세요" required autofocus>
+                </div>
+
+                <!-- 내용 -->
+                <div class="form-group">
+                    <label class="form-label">내용 *</label>
+                    <textarea name="content" rows="14"
+                              style="width:100%;padding:12px 14px;
+                                     border:1px solid var(--border);border-radius:8px;
+                                     font-size:14px;line-height:1.7;resize:vertical;
+                                     outline:none;font-family:inherit;"
+                              placeholder="내용을 입력해주세요..."
+                              required>{{ post.content if post else '' }}</textarea>
+                </div>
+
+                <!-- 기존 첨부파일 (수정 시) -->
+                {% if attachments %}
+                <div class="form-group">
+                    <label class="form-label">기존 첨부파일</label>
+                    {% for att in attachments %}
+                    <div style="display:flex;align-items:center;gap:10px;
+                                padding:8px 12px;background:#F2F2F7;
+                                border-radius:8px;margin-bottom:6px;">
+                        <span style="font-size:13px;">📎 {{ att.filename }}</span>
+                        <label style="margin-left:auto;display:flex;align-items:center;
+                                      gap:6px;font-size:12px;color:var(--danger);cursor:pointer;">
+                            <input type="checkbox" name="delete_attach" value="{{ att.id }}">
+                            삭제
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- 파일 첨부 -->
+                <div class="form-group">
+                    <label class="form-label">파일 첨부 (최대 20MB, 여러 개 가능)</label>
+                    <input type="file" name="files" multiple class="form-control"
+                           accept=".pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt,.txt,.png,.jpg,.jpeg,.gif,.zip,.csv">
+                    <div class="text-muted mt-1">
+                        허용 형식: PDF, Excel, Word, PPT, 이미지, ZIP, CSV, TXT
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:8px;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if action=='write' %}📝 등록{% else %}💾 저장{% endif %}
+                    </button>
+                    <a href="{{ url_for('board.list_posts') }}"
+                       class="btn btn-secondary">취소</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

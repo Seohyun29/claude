@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · 장비 관리{% endblock %}
+{% block page_title %}🖥️ 장비 관리 — {{ project.name }}{% endblock %}
+
+{% block content %}
+
+<!-- 브레드크럼 -->
+<div style="margin-bottom:16px;font-size:13px;color:#6E6E73;">
+    <a href="{{ url_for('projects.list_projects') }}"
+       style="color:#1428A0;text-decoration:none;">📁 프로젝트 목록</a>
+    <span style="margin:0 8px;">›</span>
+    <span>{{ project.name }}</span>
+    <span style="margin:0 8px;">›</span>
+    <span>장비 관리</span>
+</div>
+
+<!-- 프로젝트 요약 -->
+<div style="padding:14px 18px;background:#EEF1FB;border-radius:10px;
+            margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;">
+    <div>
+        <div style="font-size:13px;font-weight:700;color:#1428A0;">{{ project.name }}</div>
+        <div style="font-size:12px;color:#6E6E73;margin-top:2px;">
+            {{ project.description or '설명 없음' }}
+        </div>
+    </div>
+    <div style="font-size:12px;color:#6E6E73;">
+        장비 <strong style="color:#1428A0;font-size:16px;">{{ boards|length }}</strong>개
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>테스트 장비(보드) 목록</h2>
+        <a href="{{ url_for('projects.add_board', project_id=project.id) }}"
+           class="btn btn-primary">＋ 장비 추가</a>
+    </div>
+
+    <div class="table-wrap">
+        {% if boards %}
+        <table>
+            <thead>
+                <tr>
+                    <th>장비명</th>
+                    <th>버전</th>
+                    <th style="text-align:center;">상태</th>
+                    <th style="text-align:right;">작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in boards %}
+                <tr>
+                    <td>
+                        <strong>{{ b.name }}</strong>
+                    </td>
+                    <td>
+                        {% if b.version %}
+                        <span style="background:#F2F2F7;padding:3px 10px;
+                                     border-radius:6px;font-size:12px;font-weight:600;">
+                            v{{ b.version }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        {% if b.is_active %}
+                        <span class="badge badge-active">● 활성</span>
+                        {% else %}
+                        <span class="badge badge-inactive">○ 비활성</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:right;">
+                        <div style="display:flex;gap:6px;justify-content:flex-end;">
+                            <a href="{{ url_for('projects.edit_board',
+                                       project_id=project.id, board_id=b.id) }}"
+                               class="btn btn-secondary btn-sm">✏️ 수정</a>
+                            <form method="POST"
+                                  action="{{ url_for('projects.delete_board',
+                                            project_id=project.id, board_id=b.id) }}"
+                                  style="display:inline;">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirm('장비 [{{ b.name }}]를 삭제할까요?')">
+                                    🗑️
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">🖥️</div>
+            <p>등록된 장비가 없습니다.<br>
+               테스트에 사용할 보드/장비를 추가해주세요.</p>
+            <a href="{{ url_for('projects.add_board', project_id=project.id) }}"
+               class="btn btn-primary" style="margin-top:14px;">＋ 장비 추가</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 예시 안내 -->
+<div style="margin-top:16px;padding:14px 18px;background:#F2F2F7;
+            border-radius:10px;font-size:12.5px;color:#6E6E73;">
+    💡 <strong>예시:</strong>
+    프로젝트1의 장비 → 보드1, 보드2 /
+    프로젝트2의 장비 → 보드1, 보드2, 보드3<br>
+    장비별로 리뷰 상태와 담당자를 따로 관리합니다.
+</div>
+{% endblock %}

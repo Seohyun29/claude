@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{% if action == 'add' %}팀원 추가{% else %}팀원 수정{% endif %}{% endblock %}
+{% block page_title %}{% if action == 'add' %}➕ 팀원 추가{% else %}✏️ 팀원 수정{% endif %}{% endblock %}
+
+{% block content %}
+<div style="max-width:480px;">
+    <div class="card">
+        <div class="card-header">
+            <h2>{% if action == 'add' %}새 팀원 등록{% else %}{{ user.name }} 정보 수정{% endif %}</h2>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+
+                <!-- 이름 -->
+                <div class="form-group">
+                    <label class="form-label">이름 *</label>
+                    <input type="text" name="name" class="form-control"
+                           value="{{ user.name if user else '' }}"
+                           placeholder="예: 홍길동"
+                           required autofocus>
+                    <div class="text-muted mt-1">이름만 등록합니다 (비밀번호 없음)</div>
+                </div>
+
+                <!-- 역할 -->
+                <div class="form-group">
+                    <label class="form-label">역할 *</label>
+                    <select name="role" class="form-control" id="role-select"
+                            onchange="togglePasswordSection()">
+                        <option value="member" {% if not user or user.role == 'member' %}selected{% endif %}>
+                            팀원 (Member)
+                        </option>
+                        <option value="admin" {% if user and user.role == 'admin' %}selected{% endif %}>
+                            👑 관리자 (Admin)
+                        </option>
+                    </select>
+                    <div class="text-muted mt-1">관리자는 사용자·프로젝트 관리, 연동 설정 가능</div>
+                </div>
+
+                <!-- 장소 -->
+                <div class="form-group">
+                    <label class="form-label">근무 장소 *</label>
+                    <select name="location" class="form-control">
+                        <option value="DSR" {% if not user or user.location == 'DSR' %}selected{% endif %}>
+                            📍 DSR
+                        </option>
+                        <option value="Tera" {% if user and user.location == 'Tera' %}selected{% endif %}>
+                            📍 Tera
+                        </option>
+                    </select>
+                </div>
+
+                <!-- 비밀번호 설정 -->
+                <div class="form-group" id="password-section">
+
+                    <label class="form-label">비밀번호 설정</label>
+                    <div style="padding:14px;background:#F2F2F7;border-radius:10px;">
+                        <label style="display:flex;align-items:center;gap:10px;
+                                      cursor:pointer;font-size:14px;margin-bottom:12px;">
+                            <input type="checkbox" name="use_password" id="use-password"
+                                   {% if user and user.use_password %}checked{% endif %}
+                                   onchange="togglePasswordInput()"
+                                   style="width:18px;height:18px;cursor:pointer;">
+                            <div>
+                                <strong>비밀번호 사용</strong>
+                                <div class="text-muted" style="font-size:12px;">
+                                    체크 시 이름 선택 후 비밀번호 입력창 표시
+                                </div>
+                            </div>
+                        </label>
+                        <div id="password-input-wrap"
+                             style="display:{% if user and user.use_password %}block{% else %}none{% endif %};">
+                            <input type="password" name="password" class="form-control"
+                                   placeholder="비밀번호 입력" autocomplete="new-password">
+                            {% if action == 'edit' and user and user.use_password %}
+                            <div class="text-muted mt-1">비워두면 기존 비밀번호 유지</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-muted mt-1">
+                        ℹ️ 관리자 계정에만 비밀번호를 설정할 수 있어요.
+                    </div>
+                </div>
+
+                <!-- 활성 상태 (수정 시만 표시) -->
+                {% if action == 'edit' %}
+                <div class="form-group">
+                    <label class="form-label">상태</label>
+                    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;">
+                        <input type="checkbox" name="is_active" id="is_active"
+                               {% if user.is_active %}checked{% endif %}
+                               style="width:18px;height:18px;cursor:pointer;">
+                        <label for="is_active" style="font-size:14px;cursor:pointer;">
+                            활성 (선택 화면에 표시됨)
+                        </label>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- 버튼 -->
+                <div style="display:flex;gap:10px;margin-top:8px;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if action == 'add' %}➕ 등록{% else %}💾 저장{% endif %}
+                    </button>
+                    <a href="{{ url_for('users.list_users') }}" class="btn btn-secondary">
+                        취소
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+function togglePasswordSection() {
+    const role = document.getElementById('role-select').value;
+    const section = document.getElementById('password-section');
+    section.style.display = (role === 'admin') ? 'block' : 'none';
+    if (role !== 'admin') {
+        document.getElementById('use-password').checked = false;
+        document.getElementById('password-input-wrap').style.display = 'none';
+    }
+}
+
+function togglePasswordInput() {
+    const checked = document.getElementById('use-password').checked;
+    document.getElementById('password-input-wrap').style.display = checked ? 'block' : 'none';
+}
+</script>
+{% endblock %}
+{% endblock %}

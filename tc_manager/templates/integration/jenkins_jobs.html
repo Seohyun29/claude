@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}Jenkins Job 탐색{% endblock %}
+{% block page_title %}🔧 Jenkins Job 탐색{% endblock %}
+
+{% block extra_css %}
+<style>
+.job-row { display:flex; align-items:center; gap:12px; padding:10px 14px;
+           border-bottom:1px solid #F2F2F7; transition:background 0.1s; }
+.job-row:hover { background:#EEF1FB; }
+.job-icon { font-size:18px; width:24px; text-align:center; flex-shrink:0; }
+.job-name { font-size:14px; font-weight:600; flex:1; }
+.job-name a { color:#1C1C1E; text-decoration:none; }
+.job-name a:hover { color:#1428A0; }
+.build-badge {
+    font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700;
+    white-space:nowrap;
+}
+.build-SUCCESS  { background:#E8F5E9; color:#2E7D32; }
+.build-FAILURE  { background:#FFEBEE; color:#C62828; }
+.build-UNSTABLE { background:#FFF8E1; color:#E65100; }
+.build-ABORTED  { background:#F2F2F7; color:#6E6E73; }
+.build-BUILDING { background:#E3F2FD; color:#1565C0; animation:pulse 1.5s infinite; }
+.build-UNKNOWN  { background:#F2F2F7; color:#6E6E73; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+.breadcrumb a { color:#1428A0; text-decoration:none; font-size:13px; }
+.breadcrumb a:hover { text-decoration:underline; }
+.breadcrumb span { color:#6E6E73; margin:0 6px; }
+
+.status-dot {
+    width:8px; height:8px; border-radius:50%; flex-shrink:0;
+}
+.dot-blue  { background:#1428A0; }
+.dot-red   { background:#E53935; }
+.dot-grey  { background:#9E9E9E; }
+.dot-yellow{ background:#FF9F0A; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- 필터 상태 안내 -->
+{% if use_filter %}
+<div style="padding:12px 16px;background:#EEF1FB;border-radius:10px;
+            margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+    <div style="font-size:13px;color:#1428A0;">
+        🔍 <strong>관심 Job {{ job_filters|length }}개</strong> 표시 중
+        <span style="color:#6E6E73;margin-left:6px;font-size:12px;">
+            (설정에 등록된 Job만 표시)
+        </span>
+    </div>
+    <a href="{{ url_for('integration.jenkins_jobs', all='1') }}"
+       class="btn btn-secondary btn-sm">전체 Job 보기</a>
+</div>
+{% elif job_filters and not folder_path %}
+<div style="padding:12px 16px;background:#FFF8E1;border-radius:10px;
+            margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+    <div style="font-size:13px;color:#E65100;">
+        📋 전체 Job 탐색 중
+    </div>
+    <a href="{{ url_for('integration.jenkins_jobs') }}"
+       class="btn btn-secondary btn-sm">관심 Job만 보기</a>
+</div>
+{% endif %}
+
+<!-- 브레드크럼 -->
+<div class="breadcrumb" style="margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;">
+    <a href="{{ url_for('integration.jenkins_jobs') }}">🏠 Jenkins 루트</a>
+    {% for b in breadcrumb %}
+    <span>›</span>
+    <a href="{{ url_for('integration.jenkins_jobs', path=b.path) }}">{{ b.name }}</a>
+    {% endfor %}
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 360px;gap:18px;align-items:start;">
+
+    <!-- Job 목록 -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📁 Job 목록
+                <span style="color:#6E6E73;font-size:12px;font-weight:400;">
+                    {{ jobs|length }}개
+                </span>
+            </h2>
+            <button onclick="refreshAll()" class="btn btn-secondary btn-sm">🔄 상태 새로고침</button>
+        </div>
+
+        {% if jobs %}
+        <div>
+            {% for job in jobs %}
+            <div class="job-row" id="job-{{ loop.index }}">
+                <div class="job-icon">
+                    {% if job.is_folder %}📁
+                    {% elif job.color == 'blue' %}🟢
+                    {% elif job.color == 'red' %}🔴
+                    {% elif job.color == 'yellow' %}🟡
+                    {% elif 'anime' in (job.color or '') %}⚙️
+                    {% else %}⬜{% endif %}
+                </div>
+
+                <div class="job-name">
+                    {% if job.is_folder %}
+                    <a href="{{ url_for('integration.jenkins_jobs', path=job.full_path) }}">
+                        📂 {{ job.name }}
+                    </a>
+                    {% else %}
+                    <span>{{ job.name }}</span>
+                    {% if job.build_date %}
+                    <div style="font-size:11px;color:#6E6E73;font-weight:400;margin-top:2px;">
+                        최근 빌드: {{ job.build_date }}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+
+                {% if not job.is_folder %}
+                <!-- 빌드 상태 -->
+                <span class="build-badge build-{{ job.last_result or 'UNKNOWN' }}"
+                      id="status-{{ loop.index }}">
+                    {% if job.last_result == 'SUCCESS' %}✅ 성공
+                    {% elif job.last_result == 'FAILURE' %}❌ 실패
+                    {% elif job.last_result == 'UNSTABLE' %}⚠️ 불안정
+                    {% elif job.last_result == 'ABORTED' %}⏹ 중단
+                    {% elif not job.last_result %}— 없음
+                    {% else %}{{ job.last_result }}{% endif %}
+                </span>
+
+                <!-- IT 일정 등록 버튼 -->
+                <button onclick="openSchedule('{{ job.name }}', '{{ job.full_path }}')"
+                        class="btn btn-primary btn-sm"
+                        style="padding:4px 10px;font-size:11px;white-space:nowrap;">
+                    📅 일정 등록
+                </button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">📁</div>
+            <p>Job이 없거나 빈 폴더입니다.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 일정 등록 패널 -->
+    <div class="card" id="schedule-panel" style="display:none;position:sticky;top:70px;">
+        <div class="card-header">
+            <h2>📅 IT 일정 등록</h2>
+            <button onclick="closeSchedule()" class="btn btn-secondary btn-sm">✕</button>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('integration.jenkins_schedule') }}">
+                <input type="hidden" name="jenkins_job" id="schedule-job-path">
+
+                <div style="margin-bottom:14px;padding:10px 14px;
+                            background:#EEF1FB;border-radius:8px;font-size:13px;">
+                    <div style="color:#6E6E73;font-size:11px;">선택된 Job</div>
+                    <div id="schedule-job-name" style="font-weight:700;color:#1428A0;
+                                                       word-break:break-all;"></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">프로젝트 *</label>
+                    <select name="project_id" class="form-control" required
+                            onchange="filterBoards(this.value)">
+                        <option value="">-- 선택 --</option>
+                        {% for p in projects %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">장비(보드)</label>
+                    <select name="board_id" class="form-control" id="board-select">
+                        <option value="">-- 선택 (선택사항) --</option>
+                        {% for b in boards_all %}
+                        <option value="{{ b.id }}" data-project="{{ b.project_id }}">
+                            {{ b.project_name }} · {{ b.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">장소 *</label>
+                    <select name="location" class="form-control" required>
+                        <option value="DSR">📍 DSR</option>
+                        <option value="Tera">📍 Tera</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">날짜 *</label>
+                    <input type="date" name="scheduled_date" class="form-control"
+                           value="{{ '' }}" required
+                           id="schedule-date">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">메모</label>
+                    <input type="text" name="notes" class="form-control"
+                           placeholder="예: 일일 빌드 검증">
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;">
+                    📅 IT 일정 등록
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 빌드 상태 상세 팝업 -->
+<div id="build-detail" style="display:none;position:fixed;bottom:24px;right:24px;
+     background:#1C1C1E;color:#fff;padding:16px 20px;border-radius:12px;
+     font-size:13px;max-width:320px;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+    <div id="build-detail-content"></div>
+    <button onclick="document.getElementById('build-detail').style.display='none'"
+            style="margin-top:10px;background:rgba(255,255,255,0.15);border:none;
+                   color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;
+                   font-size:12px;">닫기</button>
+</div>
+
+<script>
+// 오늘 날짜 기본값
+document.getElementById('schedule-date').value =
+    new Date().toISOString().split('T')[0];
+
+function openSchedule(name, path) {
+    document.getElementById('schedule-job-name').textContent = name;
+    document.getElementById('schedule-job-path').value = path;
+    document.getElementById('schedule-panel').style.display = 'block';
+    document.getElementById('schedule-panel').scrollIntoView({behavior:'smooth'});
+}
+
+function closeSchedule() {
+    document.getElementById('schedule-panel').style.display = 'none';
+}
+
+function filterBoards(projectId) {
+    const sel = document.getElementById('board-select');
+    for (let opt of sel.options) {
+        if (!opt.value) continue;
+        opt.style.display = (opt.dataset.project == projectId) ? '' : 'none';
+    }
+    sel.value = '';
+}
+
+async function checkBuild(jobPath, idx) {
+    const statusEl = document.getElementById('status-' + idx);
+    if (statusEl) {
+        statusEl.className = 'build-badge build-BUILDING';
+        statusEl.textContent = '⚙️ 조회중...';
+    }
+    try {
+        const resp = await fetch(
+            '{{ url_for("integration.jenkins_job_status") }}?path=' +
+            encodeURIComponent(jobPath)
+        );
+        const data = await resp.json();
+        if (data.ok) {
+            const b = data.build;
+            const resultMap = {
+                'SUCCESS':  ['build-SUCCESS',  '✅ 성공'],
+                'FAILURE':  ['build-FAILURE',  '❌ 실패'],
+                'UNSTABLE': ['build-UNSTABLE', '⚠️ 불안정'],
+                'ABORTED':  ['build-ABORTED',  '⏹ 중단'],
+            };
+            const [cls, label] = b.building
+                ? ['build-BUILDING', '⚙️ 빌드중']
+                : (resultMap[b.result] || ['build-UNKNOWN', b.result || '알수없음']);
+            if (statusEl) {
+                statusEl.className = 'build-badge ' + cls;
+                statusEl.textContent = label;
+            }
+            // 상세 팝업
+            const detail = document.getElementById('build-detail');
+            document.getElementById('build-detail-content').innerHTML =
+                `<div style="font-weight:700;margin-bottom:6px;">📊 최신 빌드 정보</div>
+                 <div>번호: <strong>#${b.number}</strong></div>
+                 <div>결과: <strong>${label}</strong></div>
+                 <div>날짜: ${b.date}</div>
+                 ${b.duration ? '<div>소요: ' + b.duration + '</div>' : ''}
+                 ${b.url ? '<div style="margin-top:8px;"><a href="' + b.url +
+                   '" target="_blank" style="color:#64B5F6;">Jenkins에서 보기 ↗</a></div>' : ''}`;
+            detail.style.display = 'block';
+        } else {
+            if (statusEl) {
+                statusEl.className = 'build-badge build-UNKNOWN';
+                statusEl.textContent = '조회 실패';
+            }
+        }
+    } catch(e) {
+        if (statusEl) {
+            statusEl.className = 'build-badge build-UNKNOWN';
+            statusEl.textContent = '오류';
+        }
+    }
+}
+
+function refreshAll() {
+    {% for job in jobs %}
+    {% if not job.is_folder %}
+    checkBuild('{{ job.full_path }}', {{ loop.index }});
+    {% endif %}
+    {% endfor %}
+}
+</script>
+{% endblock %}

@@ -1,0 +1,137 @@
+{#
+  workitems 등록 화면 — routes/it_verification.py 의 workitems_view() 가 그림
+  프로젝트별로 workitems 엑셀을 올리면 SITL 목록이 파싱되어 DB에 저장된다.
+#}
+{% extends "base.html" %}
+{% block title %}IT 검증 - workitems 등록{% endblock %}
+{% block page_title %}🧪 IT 검증 · workitems 등록{% endblock %}
+
+{% block content %}
+<style>
+.wi-wrap { max-width: 760px; }
+.wi-card {
+    background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;
+    padding: 20px; margin-bottom: 18px;
+}
+.wi-hint { font-size: 13px; color: #6B7280; margin: 6px 0 16px; }
+.wi-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.wi-field { flex: 1; }
+.wi-label { font-size: 12px; color: #374151; margin-bottom: 4px; display: block; }
+.wi-table { width: 100%; border-collapse: collapse; }
+.wi-table th, .wi-table td {
+    text-align: left; padding: 10px 12px; font-size: 13px;
+    border-bottom: 1px solid #F0F0F0;
+}
+.wi-table th { font-size: 11px; color: #9CA3AF; font-weight: 600; }
+.wi-tabs { margin-bottom: 16px; }
+.wi-tab-link {
+    display: inline-block; padding: 8px 16px; font-size: 14px;
+    border-radius: 8px; text-decoration: none; color: #374151;
+    border: 1px solid #E5E7EB; margin-right: 6px;
+}
+.wi-tab-link.active { background: #1428A0; color: #fff; border-color: #1428A0; }
+</style>
+
+<div class="wi-wrap">
+
+    <!-- IT 검증 메뉴 내 탭 (등록 / 로그 저장) -->
+    <div class="wi-tabs">
+        <a class="wi-tab-link" href="{{ url_for('it_verification.log_view') }}">📝 로그 저장</a>
+        <a class="wi-tab-link active" href="{{ url_for('it_verification.workitems_view') }}">📂 workitems 등록</a>
+    </div>
+
+    <!-- 업로드 폼 -->
+    <div class="wi-card">
+        <div style="font-size:15px;font-weight:600;margin-bottom:2px;">📂 workitems 등록 (프로젝트별)</div>
+        <div class="wi-hint">
+            프로젝트마다 workitems 엑셀을 올려두면, 로그 저장 화면에서 자동으로 SITL 목록을 불러와요.
+            같은 프로젝트명으로 다시 올리면 최신 내용으로 갱신됩니다.
+        </div>
+        <form method="POST" action="{{ url_for('it_verification.workitems_upload') }}"
+              enctype="multipart/form-data">
+            <div class="wi-row">
+                <div class="wi-field">
+                    <label class="wi-label">프로젝트명 *</label>
+                    <select id="project-select" class="form-control" onchange="onProjectSelect(this.value)">
+                        <option value="">-- 선택 --</option>
+                        {% for p in project_options %}
+                        <option value="{{ p }}">{{ p }}</option>
+                        {% endfor %}
+                        <option value="__new__">＋ 새 프로젝트 직접 입력</option>
+                    </select>
+                    <!-- 실제 전송값: 드롭다운 선택 또는 직접 입력 -->
+                    <input type="hidden" name="project" id="project-value">
+                    <!-- '직접 입력' 선택 시에만 표시 -->
+                    <input type="text" id="project-custom" class="form-control"
+                           placeholder="새 프로젝트명 입력"
+                           style="display:none;margin-top:6px;"
+                           oninput="document.getElementById('project-value').value = this.value;">
+                </div>
+                <div class="wi-field">
+                    <label class="wi-label">workitems 엑셀 *</label>
+                    <input type="file" name="workitems_file" class="form-control"
+                           accept=".xlsx,.xls" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;"
+                    onclick="return checkProject();">등록 / 갱신</button>
+        </form>
+    </div>
+
+    <script>
+    // 드롭다운 선택 처리: 일반 선택이면 그 값, '직접 입력'이면 텍스트칸 표시
+    function onProjectSelect(val) {
+        const custom = document.getElementById('project-custom');
+        const hidden = document.getElementById('project-value');
+        if (val === '__new__') {
+            custom.style.display = 'block';
+            custom.focus();
+            hidden.value = custom.value;   // 이미 친 값이 있으면 반영
+        } else {
+            custom.style.display = 'none';
+            hidden.value = val;
+        }
+    }
+    // 제출 전 프로젝트명 확인
+    function checkProject() {
+        if (!document.getElementById('project-value').value.trim()) {
+            alert('프로젝트를 선택하거나 직접 입력해주세요.');
+            return false;
+        }
+        return true;
+    }
+    </script>
+
+    <!-- 등록된 프로젝트 목록 -->
+    <div class="wi-card">
+        <div style="font-size:13px;color:#6B7280;margin-bottom:10px;">등록된 프로젝트</div>
+        {% if projects %}
+        <table class="wi-table">
+            <thead>
+                <tr><th>프로젝트</th><th>SITL 개수</th><th>등록/갱신일</th><th style="text-align:center;">삭제</th></tr>
+            </thead>
+            <tbody>
+            {% for p in projects %}
+            <tr>
+                <td style="font-weight:600;">{{ p.project }}</td>
+                <td>{{ p.sitl_count }}개</td>
+                <td style="color:#9CA3AF;">{{ p.updated_at }}</td>
+                <td style="text-align:center;">
+                    <form method="POST" action="{{ url_for('it_verification.workitems_delete', project=p.project) }}"
+                          onsubmit="return confirm('{{ p.project }} workitems를 삭제할까요?')" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding:24px;text-align:center;color:#9CA3AF;font-size:13px;">
+            아직 등록된 workitems가 없습니다. 위에서 프로젝트별로 올려주세요.
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

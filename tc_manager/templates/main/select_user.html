@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QBridge-TC Hub | AIWORKX PEG1 Team</title>
+    <style>
+        :root {
+            --blue: #1428A0; --blue-light: #1E3FC2;
+            --gray-light: #F2F2F7; --border: #D1D1D6; --gray-dark: #1C1C1E;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+            background: linear-gradient(145deg, #0F1F8A 0%, #1428A0 40%, #1C2F9E 100%);
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+        .container { width: 100%; max-width: 560px; }
+        .header { text-align: center; margin-bottom: 36px; }
+        .header .icon { font-size: 48px; margin-bottom: 12px; }
+        .header h1 { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+        .header p { color: rgba(255,255,255,0.6); font-size: 14px; margin-top: 6px; }
+
+        .location-group { margin-bottom: 22px; }
+        .location-label {
+            color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 700;
+            letter-spacing: 1px; text-transform: uppercase;
+            margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+        }
+        .location-label::after {
+            content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.15);
+        }
+        .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .user-btn {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 12px; padding: 16px 14px; cursor: pointer;
+            transition: all 0.2s; text-align: center; color: #fff;
+        }
+        .user-btn:hover {
+            background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.5);
+            transform: translateY(-2px);
+        }
+        .user-btn .name { font-size: 15px; font-weight: 700; }
+        .user-btn .role-badge {
+            display: inline-block; margin-top: 6px;
+            background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);
+            font-size: 10px; padding: 2px 8px; border-radius: 10px;
+        }
+        .user-btn.is-admin { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.45); }
+        .user-btn.is-admin .role-badge { background: rgba(255,215,0,0.25); color: #FFD700; }
+        .user-btn.has-password::after {
+            content: '🔒'; font-size: 10px; display: block; margin-top: 4px;
+            opacity: 0.7;
+        }
+        .empty-loc { color: rgba(255,255,255,0.35); font-size: 13px; padding: 12px 0; }
+        .flash-error {
+            background: rgba(255,59,48,0.2); border: 1px solid rgba(255,59,48,0.5);
+            color: #FF6B6B; padding: 10px 14px; border-radius: 8px;
+            margin-bottom: 16px; font-size: 13px; text-align: center;
+        }
+
+        /* 비밀번호 모달 */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+            z-index: 100; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: #fff; border-radius: 16px; padding: 28px;
+            width: 320px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; color: #1C1C1E; }
+        .modal p { font-size: 13px; color: #6E6E73; margin-bottom: 18px; }
+        .modal input {
+            width: 100%; padding: 11px 13px; border: 1px solid #D1D1D6;
+            border-radius: 8px; font-size: 15px; outline: none;
+            transition: border-color 0.15s; margin-bottom: 12px;
+        }
+        .modal input:focus { border-color: #1428A0; box-shadow: 0 0 0 3px rgba(20,40,160,0.08); }
+        .modal-btns { display: flex; gap: 8px; }
+        .btn-confirm {
+            flex: 1; background: #1428A0; color: #fff; border: none;
+            border-radius: 8px; padding: 11px; font-size: 14px;
+            font-weight: 700; cursor: pointer;
+        }
+        .btn-confirm:hover { background: #1E3FC2; }
+        .btn-cancel {
+            background: #F2F2F7; color: #1C1C1E; border: none;
+            border-radius: 8px; padding: 11px 16px; font-size: 14px;
+            cursor: pointer;
+        }
+        .btn-cancel:hover { background: #E5E5EA; }
+        .pw-error {
+            color: #FF3B30; font-size: 12px; margin: -6px 0 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="icon">🔬</div>
+        <h1>QBridge-TC Hub</h1>
+        <p>AIWORKX PEG1 Team · 이름을 선택해서 시작하세요</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% endwith %}
+
+    <!-- 이름 선택 (비밀번호 없는 사용자용 일반 폼) -->
+    <form method="POST" action="{{ url_for('main.select_user') }}" id="main-form">
+        <input type="hidden" name="user_id" id="selected-user-id">
+
+        {% for loc in ['DSR', 'Tera'] %}
+        <div class="location-group">
+            <div class="location-label">📍 {{ loc }}</div>
+            <div class="user-grid">
+                {% set loc_users = users | selectattr('location', 'equalto', loc) | list %}
+                {% if loc_users %}
+                    {% for user in loc_users %}
+                    {% if user.use_password %}
+                    <!-- 비밀번호 있는 사용자 → 모달 팝업 -->
+                    <button type="button"
+                            onclick="openPasswordModal({{ user.id }}, '{{ user.name }}')"
+                            class="user-btn {{ 'is-admin' if user.role == 'admin' }} has-password">
+                        <div class="name">{{ user.name }}</div>
+                        <span class="role-badge">
+                            {% if user.role == 'admin' %}👑 관리자{% else %}팀원{% endif %}
+                        </span>
+                    </button>
+                    {% else %}
+                    <!-- 비밀번호 없는 사용자 → 바로 입장 -->
+                    <button type="submit"
+                            onclick="document.getElementById('selected-user-id').value='{{ user.id }}'"
+                            class="user-btn {{ 'is-admin' if user.role == 'admin' }}">
+                        <div class="name">{{ user.name }}</div>
+                        <span class="role-badge">
+                            {% if user.role == 'admin' %}👑 관리자{% else %}팀원{% endif %}
+                        </span>
+                    </button>
+                    {% endif %}
+                    {% endfor %}
+                {% else %}
+                <div class="empty-loc">등록된 팀원이 없습니다</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </form>
+</div>
+
+<!-- 비밀번호 모달 -->
+<div class="modal-overlay" id="pw-modal">
+    <div class="modal">
+        <h3 id="modal-title">비밀번호 확인</h3>
+        <p id="modal-desc">계속하려면 비밀번호를 입력해주세요.</p>
+        <form method="POST" action="{{ url_for('main.select_user') }}" id="pw-form">
+            <input type="hidden" name="user_id" id="modal-user-id">
+            <input type="password" name="password" id="modal-password"
+                   placeholder="비밀번호 입력" autocomplete="off">
+            <div class="pw-error" id="pw-error">비밀번호를 입력해주세요.</div>
+            <div class="modal-btns">
+                <button type="submit" class="btn-confirm">확인</button>
+                <button type="button" class="btn-cancel" onclick="closeModal()">취소</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// URL 파라미터로 비밀번호 입력창 자동 열기 (오류 후 돌아올 때)
+const params = new URLSearchParams(window.location.search);
+const pwUser = params.get('pw_user');
+if (pwUser) {
+    const btn = document.querySelector(`button[onclick*="openPasswordModal(${pwUser},"]`);
+    if (btn) {
+        const match = btn.getAttribute('onclick').match(/openPasswordModal\((\d+),\s*'(.+?)'\)/);
+        if (match) openPasswordModal(match[1], match[2]);
+    }
+}
+
+function openPasswordModal(userId, userName) {
+    document.getElementById('modal-user-id').value = userId;
+    document.getElementById('modal-title').textContent = userName + ' 님';
+    document.getElementById('modal-desc').textContent = '비밀번호를 입력해주세요.';
+    document.getElementById('modal-password').value = '';
+    document.getElementById('pw-error').style.display = 'none';
+    document.getElementById('pw-modal').classList.add('show');
+    setTimeout(() => document.getElementById('modal-password').focus(), 100);
+}
+
+function closeModal() {
+    document.getElementById('pw-modal').classList.remove('show');
+}
+
+// 모달 외부 클릭 시 닫기
+document.getElementById('pw-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+// Enter 키로 확인
+document.getElementById('modal-password').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('pw-form').submit();
+});
+</script>
+</body>
+</html>

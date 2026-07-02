@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}TC 상세 · {{ tc.tc_id }}{% endblock %}
+{% block page_title %}📋 TC 상세보기{% endblock %}
+
+{% block extra_css %}
+<style>
+.badge-draft        { background:#F2F2F7; color:#6E6E73; border:1px solid #D1D1D6; }
+.badge-inreview     { background:#E3F2FD; color:#1565C0; }
+.badge-blinreview   { background:#FFF8E1; color:#E65100; }
+.badge-reviewed     { background:#E8F5E9; color:#2E7D32; }
+.badge-approved     { background:#1428A0; color:#fff; }
+
+.board-card {
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px;
+    margin-bottom:14px;
+    transition: box-shadow 0.2s;
+}
+.board-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+.board-card.status-reviewed  { border-left:4px solid #30D158; }
+.board-card.status-inreview  { border-left:4px solid #0A84FF; }
+.board-card.status-blinreview{ border-left:4px solid #FF9F0A; }
+.board-card.status-draft     { border-left:4px solid #D1D1D6; }
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+}
+.info-item .label {
+    font-size:11px; font-weight:700; color:#6E6E73;
+    text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;
+}
+.info-item .value {
+    font-size:14px; color:#1C1C1E; font-weight:500;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- 브레드크럼 -->
+<div style="margin-bottom:16px;font-size:13px;color:#6E6E73;">
+    <a href="{{ url_for('review.list_tc') }}"
+       style="color:#1428A0;text-decoration:none;">📋 TC 목록</a>
+    <span style="margin:0 8px;">›</span>
+    <span>{{ tc.tc_id or 'TC 상세' }}</span>
+</div>
+
+<!-- TC 기본 정보 -->
+<div class="card" style="margin-bottom:18px;">
+    <div class="card-header">
+        <div>
+            <h2 style="font-size:16px;">{{ tc.title or '(제목 없음)' }}</h2>
+            <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                <span style="font-family:monospace;font-size:12px;
+                             background:#F2F2F7;padding:3px 10px;border-radius:6px;">
+                    {{ tc.tc_id or '-' }}
+                </span>
+                <span style="font-size:12px;background:#EEF1FB;color:#1428A0;
+                             padding:3px 10px;border-radius:6px;font-weight:600;">
+                    {{ tc.project_name }}
+                </span>
+                {% set st = tc.overall_status %}
+                {% set si = STATUS_STYLE.get(st, ('badge-draft','⬜')) %}
+                <span class="badge {{ si[0] }}" style="font-size:12px;">
+                    {{ si[1] }} {{ st }} (전체)
+                </span>
+            </div>
+        </div>
+        <a href="{{ url_for('review.list_tc') }}" class="btn btn-secondary btn-sm">← 목록</a>
+    </div>
+    <div class="card-body">
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">관리 프로젝트</div>
+                <div class="value">
+                    <span style="background:#EEF1FB;color:#1428A0;padding:3px 10px;
+                                 border-radius:6px;font-weight:700;font-size:13px;">
+                        {{ tc.project_name or '-' }}
+                    </span>
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">Target Project (원본)</div>
+                <div class="value" style="font-size:12px;color:#6E6E73;">
+                    {% if tc.target_project %}
+                    {% for tp in tc.target_project.split(',') %}
+                    <span style="background:#F2F2F7;padding:2px 7px;border-radius:4px;
+                                 margin-right:4px;display:inline-block;margin-bottom:2px;">
+                        {{ tp.strip() }}
+                    </span>
+                    {% endfor %}
+                    {% else %}-{% endif %}
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">Sub System</div>
+                <div class="value">{{ tc.sub_system or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">IP</div>
+                <div class="value">{{ tc.ip or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">Domain</div>
+                <div class="value">{{ tc.domain or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">SITL ID</div>
+                <div class="value">{{ tc.sitl_id or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">ALM Status</div>
+                <div class="value">{{ tc.alm_status or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">CI Test Automated</div>
+                <div class="value">{{ tc.ci_test_automated or '-' }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">CI Script File Name</div>
+                <div class="value" style="font-size:12px;word-break:break-all;">
+                    {{ tc.ci_script_file_name or '-' }}
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">업로드일</div>
+                <div class="value">{{ tc.uploaded_at[:10] if tc.uploaded_at else '-' }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 보드별 리뷰 상태 -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <h3 style="font-size:15px;font-weight:700;">🖥️ 보드별 리뷰 상태</h3>
+    <span class="text-muted">{{ boards|length }}개 장비</span>
+</div>
+
+{% if boards %}
+    {% for board in boards %}
+    {% set rs = status_map.get(board.id) %}
+    {% set cur_status = rs.status if rs else 'Draft' %}
+    {% set card_cls = 'status-reviewed' if cur_status == 'Reviewed'
+                      else ('status-inreview' if cur_status == 'In Review'
+                      else ('status-blinreview' if cur_status == 'BL in Review'
+                      else 'status-draft')) %}
+
+    <div class="board-card {{ card_cls }}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+
+            <!-- 보드 정보 + 현재 상태 -->
+            <div style="min-width:200px;">
+                <div style="font-size:15px;font-weight:700;margin-bottom:6px;">
+                    🖥️ {{ board.name }}
+                    {% if board.version %}
+                    <span style="font-size:11px;font-weight:400;color:#6E6E73;margin-left:4px;">
+                        v{{ board.version }}
+                    </span>
+                    {% endif %}
+                </div>
+                {% set si = STATUS_STYLE.get(cur_status, ('badge-draft','⬜')) %}
+                <span class="badge {{ si[0] }}">{{ si[1] }} {{ cur_status }}</span>
+                {% if rs %}
+                <div class="text-muted" style="margin-top:6px;">
+                    담당: <strong>{{ rs.reviewer_name or '-' }}</strong>
+                    · {{ rs.updated_at[:16] if rs.updated_at else '' }}
+                </div>
+                {% if rs.comment %}
+                <div style="margin-top:6px;padding:8px 12px;background:#FFF8E1;
+                            border-radius:8px;font-size:12.5px;color:#5D4037;">
+                    💬 {{ rs.comment }}
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+
+            <!-- 상태 변경 폼 -->
+            <form method="POST"
+                  action="{{ url_for('review.update_board_status', tc_id=tc.id) }}"
+                  style="display:flex;flex-direction:column;gap:8px;min-width:280px;">
+                <input type="hidden" name="board_id" value="{{ board.id }}">
+
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    {% for st in STATUS_LIST %}
+                    {% if st != 'Approved' or session.role == 'admin' %}
+                    <button type="submit" name="status" value="{{ st }}"
+                            class="btn btn-sm {% if cur_status == st %}btn-primary{% else %}btn-secondary{% endif %}"
+                            style="{% if cur_status == st %}outline:2px solid #1428A0;{% endif %}">
+                        {{ STATUS_STYLE[st][1] }} {{ st }}
+                    </button>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- 담당자 선택 -->
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <select name="reviewer_id"
+                            style="flex:1;padding:6px 10px;border:1px solid var(--border);
+                                   border-radius:8px;font-size:12px;">
+                        {% for m in members %}
+                        <option value="{{ m.id }}"
+                            {% if (rs and rs.reviewer_id == m.id) or
+                                  (not rs and m.id == session.user_id) %}
+                            selected{% endif %}>
+                            {{ m.name }}
+                            {% if m.id == session.user_id %}(나){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- 코멘트 -->
+                <input type="text" name="comment"
+                       value="{{ rs.comment if rs else '' }}"
+                       placeholder="💬 코멘트 (Draft 처리 시 이유 등)"
+                       style="padding:7px 10px;border:1px solid var(--border);
+                              border-radius:8px;font-size:12px;">
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+
+{% else %}
+<div class="empty-state">
+    <div class="icon">🖥️</div>
+    <p>이 프로젝트에 등록된 장비가 없습니다.<br>
+       관리자 → 프로젝트 관리에서 장비를 추가해주세요.</p>
+</div>
+{% endif %}
+
+<!-- 안내 -->
+<div style="margin-top:16px;padding:14px 18px;background:#EEF1FB;
+            border-radius:10px;font-size:12.5px;color:#1428A0;line-height:1.7;">
+    ℹ️ <strong>전체 상태 자동 계산:</strong>
+    모든 보드가 Reviewed 이상 → 전체 <strong>Reviewed</strong>
+    / In Review 하나라도 있으면 → 전체 <strong>In Review</strong>
+    / 그 외 → <strong>Draft</strong><br>
+    ℹ️ Reviewed 확인 후 <strong>Polarion ALM</strong>에서 직접 Reviewed 변경 → SWPM이 Approved 처리
+</div>
+{% endblock %}

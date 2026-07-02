@@ -1,0 +1,234 @@
+{#
+  IT 검증 로그 저장 화면 — routes/it_verification.py 의 log_view() 가 그림
+  [상단] 프로젝트·보드·도메인 선택 + Pass/Fail/N/A + SAVE
+  [왼쪽] 선택한 조합의 SITL 목록 (클릭해서 선택)
+  [오른쪽] 로그 작성 칸
+  [하단] 저장된 로그 목록 + 날짜 필터
+#}
+{% extends "base.html" %}
+{% block title %}IT 검증 - 로그 저장{% endblock %}
+{% block page_title %}🧪 IT 검증 · 로그 저장{% endblock %}
+
+{% block content %}
+<style>
+.iv-tabs { margin-bottom: 16px; }
+.iv-tab-link {
+    display: inline-block; padding: 8px 16px; font-size: 14px;
+    border-radius: 8px; text-decoration: none; color: #374151;
+    border: 1px solid #E5E7EB; margin-right: 6px;
+}
+.iv-tab-link.active { background: #1428A0; color: #fff; border-color: #1428A0; }
+
+.iv-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; }
+
+/* 상단 바 */
+.iv-top {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px; border-bottom: 1px solid #E5E7EB;
+}
+.iv-sel { padding: 6px 10px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 13px; }
+.iv-usc { color: #9CA3AF; }
+.iv-results { display: flex; gap: 14px; align-items: center; margin-left: auto; }
+.iv-results label { font-size: 13px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* 본문: 왼쪽 SITL + 오른쪽 로그 */
+.iv-body { display: grid; grid-template-columns: 200px 1fr; min-height: 340px; }
+.iv-sitl-col { border-right: 1px solid #E5E7EB; background: #FAFAFA; display: flex; flex-direction: column; }
+.iv-sitl-head { padding: 8px 12px; font-size: 11px; color: #9CA3AF; border-bottom: 1px solid #E5E7EB; }
+.iv-sitl-list { overflow-y: auto; max-height: 360px; }
+.iv-sitl-item {
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+    border-bottom: 1px solid #F0F0F0;
+}
+.iv-sitl-item:hover { background: #EEF1FB; }
+.iv-sitl-item.sel {
+    background: #EEF1FB; color: #1428A0; font-weight: 600;
+    border-left: 3px solid #1428A0;
+}
+.iv-sitl-empty { padding: 20px 12px; font-size: 12px; color: #9CA3AF; text-align: center; }
+
+.iv-log-col { padding: 12px; display: flex; flex-direction: column; }
+.iv-log-info { font-size: 12px; color: #6B7280; margin-bottom: 6px; min-height: 18px; }
+.iv-log-area {
+    flex: 1; width: 100%; border: 1px solid #D1D5DB; border-radius: 8px;
+    padding: 10px; font-size: 13px; font-family: inherit; resize: vertical;
+    min-height: 260px; box-sizing: border-box;
+}
+
+/* 하단 로그 목록 */
+.iv-list-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px; margin-top: 18px; }
+.iv-table { width: 100%; border-collapse: collapse; }
+.iv-table th, .iv-table td { text-align: left; padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #F0F0F0; }
+.iv-table th { font-size: 11px; color: #9CA3AF; font-weight: 600; }
+.res-badge { padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.res-PASS { background: #E8F5E9; color: #2E7D32; }
+.res-FAIL { background: #FCEBEB; color: #A32D2D; }
+.res-NA   { background: #FAEEDA; color: #854F0B; }
+</style>
+
+<div class="iv-tabs">
+    <a class="iv-tab-link active" href="{{ url_for('it_verification.log_view') }}">📝 로그 저장</a>
+    <a class="iv-tab-link" href="{{ url_for('it_verification.workitems_view') }}">📂 workitems 등록</a>
+</div>
+
+<form method="POST" action="{{ url_for('it_verification.log_save') }}" id="log-form">
+<div class="iv-card">
+
+    <!-- 상단 바 -->
+    <div class="iv-top">
+        <select name="project" id="sel-project" class="iv-sel" onchange="loadSitls()" required>
+            <option value="">프로젝트</option>
+            {% for p in projects %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <span class="iv-usc">_</span>
+        <select name="board" id="sel-board" class="iv-sel" required>
+            <option value="">보드</option>
+            {% for b in boards %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+        </select>
+        <span class="iv-usc">_</span>
+        <select name="domain" id="sel-domain" class="iv-sel" onchange="loadSitls()" required>
+            <option value="">도메인</option>
+            {% for d in domains %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+        </select>
+
+        <div class="iv-results">
+            <label><input type="radio" name="result" value="PASS" required> Pass</label>
+            <label><input type="radio" name="result" value="FAIL"> Fail</label>
+            <label><input type="radio" name="result" value="NA"> N/A</label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-sm" style="padding:6px 16px;">💾 SAVE</button>
+    </div>
+
+    <!-- 본문 -->
+    <div class="iv-body">
+        <!-- 왼쪽: SITL 목록 -->
+        <div class="iv-sitl-col">
+            <div class="iv-sitl-head" id="sitl-head">SITL 목록</div>
+            <div class="iv-sitl-list" id="sitl-list">
+                <div class="iv-sitl-empty">프로젝트와 도메인을<br>먼저 선택하세요</div>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 로그 작성 -->
+        <div class="iv-log-col">
+            <div class="iv-log-info" id="log-info">SITL을 선택하면 로그를 작성할 수 있어요</div>
+            <textarea name="content" id="log-content" class="iv-log-area"
+                      placeholder="테스트 진행 내용을 입력하세요..."></textarea>
+        </div>
+    </div>
+
+    <!-- 선택된 SITL (hidden) -->
+    <input type="hidden" name="sitl_id" id="sel-sitl" value="">
+</div>
+</form>
+
+<!-- 하단: 저장된 로그 목록 -->
+<div class="iv-list-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:14px;font-weight:600;">저장된 로그</div>
+        <div>
+            <label style="font-size:12px;color:#6B7280;margin-right:6px;">날짜</label>
+            <select class="iv-sel" onchange="location.href='{{ url_for('it_verification.log_view') }}?date='+this.value">
+                <option value="">전체</option>
+                {% for d in dates %}
+                <option value="{{ d }}" {% if d == filter_date %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    {% if logs %}
+    <table class="iv-table">
+        <thead>
+            <tr><th>날짜</th><th>프로젝트</th><th>보드</th><th>도메인</th><th>SITL</th>
+                <th>결과</th><th>제목</th><th style="text-align:center;">파일</th></tr>
+        </thead>
+        <tbody>
+        {% for log in logs %}
+        <tr>
+            <td style="white-space:nowrap;">{{ log.log_date }}</td>
+            <td style="font-weight:600;">{{ log.project }}</td>
+            <td>{{ log.board }}</td>
+            <td>{{ log.domain }}</td>
+            <td style="font-family:monospace;">{{ log.sitl_id }}</td>
+            <td><span class="res-badge res-{{ log.result }}">{{ log.result }}</span></td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;">
+                {{ log.title or '-' }}
+            </td>
+            <td style="text-align:center;white-space:nowrap;">
+                <a href="{{ url_for('it_verification.log_download', log_id=log.id) }}"
+                   class="btn btn-secondary btn-sm">⬇️</a>
+                <form method="POST" action="{{ url_for('it_verification.log_delete', log_id=log.id) }}"
+                      onsubmit="return confirm('삭제할까요?')" style="display:inline;">
+                    <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="padding:24px;text-align:center;color:#9CA3AF;font-size:13px;">
+        저장된 로그가 없습니다.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// 프로젝트+도메인 선택 시 → 해당 SITL 목록 불러오기
+function loadSitls() {
+    const project = document.getElementById('sel-project').value;
+    const domain  = document.getElementById('sel-domain').value;
+    const listEl  = document.getElementById('sitl-list');
+    const headEl  = document.getElementById('sitl-head');
+    // 선택 초기화
+    document.getElementById('sel-sitl').value = '';
+    document.getElementById('log-info').textContent = 'SITL을 선택하면 로그를 작성할 수 있어요';
+
+    if (!project || !domain) {
+        listEl.innerHTML = '<div class="iv-sitl-empty">프로젝트와 도메인을<br>먼저 선택하세요</div>';
+        headEl.textContent = 'SITL 목록';
+        return;
+    }
+    headEl.textContent = 'SITL 목록 (' + domain + ')';
+    listEl.innerHTML = '<div class="iv-sitl-empty">불러오는 중...</div>';
+
+    fetch(`{{ url_for('it_verification.get_sitls') }}?project=${encodeURIComponent(project)}&domain=${encodeURIComponent(domain)}`)
+        .then(r => r.json())
+        .then(d => {
+            if (!d.ok || d.sitls.length === 0) {
+                listEl.innerHTML = '<div class="iv-sitl-empty">해당 SITL이 없어요</div>';
+                return;
+            }
+            listEl.innerHTML = '';
+            d.sitls.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'iv-sitl-item';
+                div.textContent = s.sitl_id;
+                div.title = s.title || '';
+                div.onclick = () => pickSitl(div, s);
+                listEl.appendChild(div);
+            });
+        })
+        .catch(() => { listEl.innerHTML = '<div class="iv-sitl-empty">불러오기 실패</div>'; });
+}
+
+// SITL 하나 선택
+function pickSitl(el, s) {
+    document.querySelectorAll('.iv-sitl-item').forEach(i => i.classList.remove('sel'));
+    el.classList.add('sel');
+    document.getElementById('sel-sitl').value = s.sitl_id;
+    document.getElementById('log-info').textContent =
+        s.sitl_id + (s.title ? ' · ' + s.title : '') + ' — 로그 작성';
+}
+
+// 저장 전 SITL 선택 확인
+document.getElementById('log-form').addEventListener('submit', function(e) {
+    if (!document.getElementById('sel-sitl').value) {
+        e.preventDefault();
+        alert('왼쪽에서 SITL을 선택해주세요.');
+    }
+});
+</script>
+{% endblock %}

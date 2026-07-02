@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}연동 설정{% endblock %}
+{% block page_title %}🔗 Jira / Jenkins 연동 설정{% endblock %}
+
+{% block extra_css %}
+<style>
+.integration-card {
+    background:#fff; border:1px solid var(--border);
+    border-radius:12px; overflow:hidden; margin-bottom:24px;
+}
+.integration-header {
+    padding:16px 22px;
+    display:flex; align-items:center; justify-content:space-between;
+}
+.integration-header.jira    { background:linear-gradient(135deg,#0052CC,#0065FF); }
+.integration-header.jenkins { background:linear-gradient(135deg,#D33833,#E05C57); }
+.integration-header h2 { color:#fff; font-size:16px; font-weight:700; }
+.integration-header .status-badge {
+    padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;
+}
+.badge-on  { background:rgba(48,209,88,0.25); color:#30D158; border:1px solid #30D158; }
+.badge-off { background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.6); }
+
+.test-result {
+    padding:10px 14px; border-radius:8px; font-size:13px;
+    margin-top:10px; display:none;
+}
+.test-ok    { background:#E8F5E9; color:#1B5E20; border:1px solid #A5D6A7; }
+.test-fail  { background:#FFEBEE; color:#B71C1C; border:1px solid #EF9A9A; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── JIRA ── -->
+<div class="integration-card">
+    <div class="integration-header jira">
+        <div>
+            <h2>🔵 Jira 연동</h2>
+            <div style="color:rgba(255,255,255,0.7);font-size:12px;margin-top:3px;">
+                Polarion ALM TC 상태 동기화
+            </div>
+        </div>
+        <span class="status-badge {{ 'badge-on' if jira_cfg.get('is_enabled') else 'badge-off' }}">
+            {{ '● 활성화' if jira_cfg.get('is_enabled') else '○ 비활성화' }}
+        </span>
+    </div>
+
+    <div style="padding:22px;">
+        <form method="POST" action="{{ url_for('integration.save_jira') }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="form-group">
+                    <label class="form-label">Jira 서버 URL</label>
+                    <input type="text" name="server_url" class="form-control"
+                           value="{{ jira_cfg.get('server_url','') }}"
+                           placeholder="https://jira.samsung.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">프로젝트 키</label>
+                    <input type="text" name="project_key" class="form-control"
+                           value="{{ jira_cfg.get('project_key','') }}"
+                           placeholder="예: ALM">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">이메일 (계정)</label>
+                    <input type="text" name="email" class="form-control"
+                           value="{{ jira_cfg.get('email','') }}"
+                           placeholder="yourname@samsung.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API 토큰</label>
+                    <input type="password" name="token" class="form-control"
+                           value="{{ jira_cfg.get('token','') }}"
+                           placeholder="Jira API 토큰">
+                    <div class="text-muted mt-1">
+                        Jira 프로필 → 보안 → API 토큰 만들기
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 0 16px;">
+                <input type="checkbox" name="is_enabled" id="jira_enabled"
+                       {{ 'checked' if jira_cfg.get('is_enabled') }}
+                       style="width:18px;height:18px;cursor:pointer;">
+                <label for="jira_enabled" style="font-size:14px;cursor:pointer;">
+                    Jira 연동 활성화
+                </label>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button type="submit" class="btn btn-primary">💾 설정 저장</button>
+                <button type="button" class="btn btn-secondary" id="jira-test-btn">
+                    🔌 연결 테스트
+                </button>
+                {% if jira_cfg.get('is_enabled') %}
+                <a href="{{ url_for('integration.jira_fetch_inreview') }}"
+                   class="btn btn-secondary">
+                    📥 In Review TC 가져오기
+                </a>
+                {% endif %}
+            </div>
+            <div id="jira-test-result" class="test-result"></div>
+        </form>
+
+        <!-- Jira 기능 안내 -->
+        <div style="margin-top:20px;padding:14px;background:#E3F2FD;
+                    border-radius:10px;font-size:12.5px;color:#1565C0;line-height:1.8;">
+            <strong>Jira 연동 기능</strong><br>
+            🔍 <strong>In Review TC 가져오기</strong> — Jira에서 In Review 상태인 TC 목록 조회<br>
+            🔗 <strong>TC 연결</strong> — Jira 이슈 키와 우리 TC ID를 연결해서 상태 추적
+        </div>
+    </div>
+</div>
+<div id="jenkins">
+
+</div>
+<!-- ── JENKINS ── -->
+<div class="integration-card">
+    <div class="integration-header jenkins">
+        <div>
+            <h2>🔴 Jenkins 연동</h2>
+            <div style="color:rgba(255,255,255,0.7);font-size:12px;margin-top:3px;">
+                빌드 이미지 확인 및 IT 일정 등록
+            </div>
+        </div>
+        <span class="status-badge {{ 'badge-on' if jenkins_cfg.get('is_enabled') else 'badge-off' }}">
+            {{ '● 활성화' if jenkins_cfg.get('is_enabled') else '○ 비활성화' }}
+        </span>
+    </div>
+
+    <div style="padding:22px;">
+        <form method="POST" action="{{ url_for('integration.save_jenkins') }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="form-group">
+                    <label class="form-label">Jenkins 서버 URL</label>
+                    <input type="text" name="server_url" class="form-control"
+                           value="{{ jenkins_cfg.get('server_url','') }}"
+                           placeholder="https://jenkins.samsung.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">사용자 계정</label>
+                    <input type="text" name="username" class="form-control"
+                           value="{{ jenkins_cfg.get('username','') }}"
+                           placeholder="yourname">
+                </div>
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">API 토큰</label>
+                    <input type="password" name="token" class="form-control"
+                           value="{{ jenkins_cfg.get('token','') }}"
+                           placeholder="Jenkins API 토큰">
+                    <div class="text-muted mt-1">
+                        Jenkins 계정 → Configure → API Token → Add new Token
+                    </div>
+                </div>
+
+                <!-- Job 필터 -->
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label class="form-label">관심 Job 목록 (선택사항)</label>
+                    <textarea name="job_filters" rows="5"
+                              style="width:100%;padding:10px 13px;
+                                     border:1px solid var(--border);border-radius:8px;
+                                     font-size:12px;font-family:monospace;
+                                     line-height:1.8;resize:vertical;outline:none;"
+                              placeholder="/job/ProjectA/job/daily_build&#10;/job/ProjectB/job/v920_test&#10;/job/FolderName/job/JobName">{{ jenkins_cfg.get('job_filters','') }}</textarea>
+                    <div class="text-muted mt-1">
+                        Job 경로를 한 줄에 하나씩 입력 · 비워두면 전체 Job 목록 표시<br>
+                        경로 확인: Jenkins Job 탐색에서 📡 확인 클릭 → 경로 복사
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 0 16px;">
+                <input type="checkbox" name="is_enabled" id="jenkins_enabled"
+                       {{ 'checked' if jenkins_cfg.get('is_enabled') }}
+                       style="width:18px;height:18px;cursor:pointer;">
+                <label for="jenkins_enabled" style="font-size:14px;cursor:pointer;">
+                    Jenkins 연동 활성화
+                </label>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button type="submit" class="btn btn-primary">💾 설정 저장</button>
+                <button type="button" class="btn btn-secondary" id="jenkins-test-btn">
+                    🔌 연결 테스트
+                </button>
+                {% if jenkins_cfg.get('is_enabled') %}
+                <a href="{{ url_for('integration.jenkins_jobs') }}"
+                   class="btn btn-secondary">
+                    🔧 Job 탐색
+                </a>
+                <a href="{{ url_for('integration.it_schedule') }}"
+                   class="btn btn-secondary">
+                    📅 IT 일정 관리
+                </a>
+                {% endif %}
+            </div>
+            <div id="jenkins-test-result" class="test-result"></div>
+        </form>
+
+        <!-- Jenkins 기능 안내 -->
+        <div style="margin-top:20px;padding:14px;background:#FFF3E0;
+                    border-radius:10px;font-size:12.5px;color:#E65100;line-height:1.8;">
+            <strong>Jenkins 연동 기능</strong><br>
+            🏗️ <strong>빌드 목록 조회</strong> — Job 목록 및 최신 빌드 결과 확인<br>
+            📅 <strong>IT 일정 등록</strong> — 새 빌드를 대시보드 IT 일정에 바로 등록
+        </div>
+    </div>
+</div>
+
+<!-- 토큰 발급 안내 -->
+<div style="padding:16px 18px;background:#F2F2F7;border-radius:10px;
+            font-size:12.5px;color:#6E6E73;line-height:1.9;">
+    <strong style="color:#1C1C1E;">⚠️ 보안 환경 참고사항</strong><br>
+    내부망 서버의 경우 SSL 인증서 검증을 건너뜁니다 (verify=False).<br>
+    토큰은 DB에 저장되며 외부로 전송되지 않습니다.<br>
+    연동이 불가한 경우 IT 일정은 <strong>수동 등록</strong>으로 사용하실 수 있습니다.
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Jira 연결 테스트
+document.getElementById('jira-test-btn').addEventListener('click', function() {
+    const btn = this;
+    const result = document.getElementById('jira-test-result');
+    btn.textContent = '테스트 중...';
+    btn.disabled = true;
+
+    fetch('{{ url_for("integration.test_jira") }}', {method:'POST'})
+        .then(r => r.json())
+        .then(data => {
+            result.style.display = 'block';
+            result.className = 'test-result ' + (data.ok ? 'test-ok' : 'test-fail');
+            result.textContent = data.msg;
+        })
+        .catch(() => {
+            result.style.display = 'block';
+            result.className = 'test-result test-fail';
+            result.textContent = '❌ 요청 실패. 서버 상태를 확인하세요.';
+        })
+        .finally(() => {
+            btn.textContent = '🔌 연결 테스트';
+            btn.disabled = false;
+        });
+});
+
+// Jenkins 연결 테스트
+document.getElementById('jenkins-test-btn').addEventListener('click', function() {
+    const btn = this;
+    const result = document.getElementById('jenkins-test-result');
+    btn.textContent = '테스트 중...';
+    btn.disabled = true;
+
+    fetch('{{ url_for("integration.test_jenkins") }}', {method:'POST'})
+        .then(r => r.json())
+        .then(data => {
+            result.style.display = 'block';
+            result.className = 'test-result ' + (data.ok ? 'test-ok' : 'test-fail');
+            result.textContent = data.msg;
+        })
+        .catch(() => {
+            result.style.display = 'block';
+            result.className = 'test-result test-fail';
+            result.textContent = '❌ 요청 실패.';
+        })
+        .finally(() => {
+            btn.textContent = '🔌 연결 테스트';
+            btn.disabled = false;
+        });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }}{% endblock %}
+{% block page_title %}📌 게시판{% endblock %}
+
+{% block extra_css %}
+<style>
+.post-content {
+    font-size:14px; line-height:1.9; color:#1C1C1E;
+    white-space:pre-wrap; word-break:break-word;
+    min-height:120px;
+}
+.attach-item {
+    display:flex; align-items:center; gap:10px;
+    padding:9px 14px; background:#F2F2F7; border-radius:8px;
+    margin-bottom:6px; font-size:13px;
+}
+.attach-item a { color:#1428A0; text-decoration:none; font-weight:600; }
+.attach-item a:hover { text-decoration:underline; }
+.comment-item {
+    padding:14px 0; border-bottom:1px solid #F2F2F7;
+}
+.comment-item:last-child { border-bottom:none; }
+.comment-header {
+    display:flex; align-items:center; gap:8px; margin-bottom:6px;
+}
+.nav-post a {
+    color:#1428A0; text-decoration:none; font-size:13px;
+}
+.nav-post a:hover { text-decoration:underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:860px;">
+
+    <!-- 게시글 헤더 -->
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="flex-direction:column;align-items:flex-start;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;width:100%;">
+                {% if post.category == 'notice' %}
+                <span style="background:#FF9F0A;color:#fff;font-size:11px;font-weight:700;
+                             padding:2px 8px;border-radius:10px;flex-shrink:0;">📢 공지</span>
+                {% else %}
+                <span style="background:#F2F2F7;color:#6E6E73;font-size:11px;
+                             padding:2px 8px;border-radius:10px;flex-shrink:0;">💬 일반</span>
+                {% endif %}
+                <h2 style="font-size:17px;font-weight:700;flex:1;">{{ post.title }}</h2>
+            </div>
+            <div style="display:flex;gap:16px;font-size:12px;color:#6E6E73;width:100%;">
+                <span>✍️ {{ post.author_name }}</span>
+                <span>📅 {{ post.created_at[:16] }}</span>
+                <span>👁️ {{ post.view_count }}</span>
+                {% if post.updated_at != post.created_at %}
+                <span style="color:#FF9F0A;">수정됨: {{ post.updated_at[:16] }}</span>
+                {% endif %}
+                <!-- 수정/삭제 -->
+                {% if post.author_id == session.user_id or session.role == 'admin' %}
+                <div style="margin-left:auto;display:flex;gap:6px;">
+                    <a href="{{ url_for('board.edit_post', post_id=post.id) }}"
+                       class="btn btn-secondary btn-sm">✏️ 수정</a>
+                    <form method="POST"
+                          action="{{ url_for('board.delete_post', post_id=post.id) }}"
+                          style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm"
+                                onclick="return confirm('이 게시글을 삭제할까요?')">
+                            🗑️ 삭제
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 본문 -->
+        <div class="card-body">
+            <div class="post-content">{{ post.content }}</div>
+        </div>
+
+        <!-- 첨부파일 -->
+        {% if attachments %}
+        <div style="padding:14px 22px;border-top:1px solid var(--gray-light);">
+            <div style="font-size:12px;font-weight:700;color:#6E6E73;
+                        margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">
+                📎 첨부파일 {{ attachments|length }}개
+            </div>
+            {% for att in attachments %}
+            <div class="attach-item">
+                <span style="font-size:16px;">
+                    {% if att.filename.endswith(('.png','.jpg','.jpeg','.gif')) %}🖼️
+                    {% elif att.filename.endswith('.pdf') %}📄
+                    {% elif att.filename.endswith(('.xlsx','.xls','.csv')) %}📊
+                    {% elif att.filename.endswith(('.docx','.doc')) %}📝
+                    {% elif att.filename.endswith('.zip') %}🗜️
+                    {% else %}📁{% endif %}
+                </span>
+                <a href="{{ url_for('board.download_file', attach_id=att.id) }}">
+                    {{ att.filename }}
+                </a>
+                <span style="color:#6E6E73;font-size:11px;">
+                    ({{ file_size_str(att.file_size) }})
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 이전/다음 글 -->
+    <div class="card" style="margin-bottom:16px;">
+        <div style="padding:12px 20px;">
+            {% if next_post %}
+            <div class="nav-post" style="padding:6px 0;border-bottom:1px solid #F2F2F7;">
+                <span style="font-size:11px;color:#6E6E73;margin-right:8px;">▲ 다음글</span>
+                <a href="{{ url_for('board.view_post', post_id=next_post.id) }}">
+                    {{ next_post.title }}
+                </a>
+            </div>
+            {% endif %}
+            {% if prev_post %}
+            <div class="nav-post" style="padding:6px 0;">
+                <span style="font-size:11px;color:#6E6E73;margin-right:8px;">▼ 이전글</span>
+                <a href="{{ url_for('board.view_post', post_id=prev_post.id) }}">
+                    {{ prev_post.title }}
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 댓글 -->
+    <div class="card" id="comments">
+        <div class="card-header">
+            <h2>💬 댓글 <span style="color:#6E6E73;font-weight:400;font-size:13px;">
+                {{ comments|length }}개
+            </span></h2>
+        </div>
+        <div class="card-body">
+
+            <!-- 댓글 목록 -->
+            {% for c in comments %}
+            <div class="comment-item">
+                <div class="comment-header">
+                    <span style="font-size:13px;font-weight:700;">{{ c.author_name }}</span>
+                    <span style="font-size:11px;color:#6E6E73;">{{ c.created_at[:16] }}</span>
+                    {% if c.author_id == session.user_id or session.role == 'admin' %}
+                    <form method="POST"
+                          action="{{ url_for('board.delete_comment', comment_id=c.id) }}"
+                          style="margin-left:auto;">
+                        <button type="submit" class="btn btn-secondary btn-sm"
+                                style="padding:2px 8px;font-size:11px;"
+                                onclick="return confirm('댓글을 삭제할까요?')">삭제</button>
+                    </form>
+                    {% endif %}
+                </div>
+                <div style="font-size:13px;line-height:1.7;color:#1C1C1E;
+                            white-space:pre-wrap;">{{ c.content }}</div>
+            </div>
+            {% endfor %}
+
+            {% if not comments %}
+            <div style="text-align:center;padding:20px;color:#6E6E73;font-size:13px;">
+                첫 번째 댓글을 남겨보세요!
+            </div>
+            {% endif %}
+
+            <!-- 댓글 작성 -->
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid #F2F2F7;">
+                <form method="POST"
+                      action="{{ url_for('board.add_comment', post_id=post.id) }}">
+                    <div style="display:flex;gap:10px;align-items:flex-end;">
+                        <div style="flex:1;">
+                            <div style="font-size:12px;font-weight:600;color:#6E6E73;
+                                        margin-bottom:6px;">
+                                {{ session.user_name }} 으로 댓글 작성
+                            </div>
+                            <textarea name="content" rows="3"
+                                      placeholder="댓글을 입력하세요..."
+                                      style="width:100%;padding:10px 13px;
+                                             border:1px solid var(--border);
+                                             border-radius:8px;font-size:13px;
+                                             resize:vertical;outline:none;
+                                             font-family:inherit;line-height:1.6;"
+                                      required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary"
+                                style="height:42px;white-space:nowrap;">
+                            댓글 등록
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 목록으로 -->
+    <div style="margin-top:14px;">
+        <a href="{{ url_for('board.list_posts') }}" class="btn btn-secondary">← 목록으로</a>
+    </div>
+</div>
+{% endblock %}

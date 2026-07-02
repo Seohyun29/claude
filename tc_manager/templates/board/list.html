@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}게시판{% endblock %}
+{% block page_title %}📌 게시판{% endblock %}
+
+{% block extra_css %}
+<style>
+.cat-tab {
+    padding:7px 16px; border-radius:20px; font-size:13px; font-weight:600;
+    cursor:pointer; text-decoration:none; border:1px solid var(--border);
+    color:var(--gray-mid); background:#fff; transition:all 0.15s;
+}
+.cat-tab:hover, .cat-tab.active {
+    background:var(--blue); color:#fff; border-color:var(--blue);
+}
+.notice-row { background:#FFF8E1 !important; }
+.notice-row:hover { background:#FFF3CD !important; }
+.notice-badge {
+    display:inline-block; background:#FF9F0A; color:#fff;
+    font-size:10px; font-weight:700; padding:1px 7px;
+    border-radius:10px; margin-right:6px; vertical-align:middle;
+}
+.attach-icon { color:#1428A0; font-size:11px; margin-left:4px; }
+.comment-count {
+    color:#1428A0; font-size:11px; font-weight:700;
+    margin-left:4px;
+}
+.page-btn {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:32px; border-radius:8px; font-size:13px;
+    text-decoration:none; border:1px solid var(--border);
+    color:var(--gray-dark); background:#fff;
+}
+.page-btn:hover { background:var(--blue-pale); }
+.page-btn.active { background:var(--blue); color:#fff; border-color:var(--blue); font-weight:700; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- 상단 도구바 -->
+<div style="display:flex;align-items:center;justify-content:space-between;
+            margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+    <!-- 카테고리 탭 -->
+    <div style="display:flex;gap:8px;">
+        <a href="{{ url_for('board.list_posts') }}"
+           class="cat-tab {{ 'active' if not category }}">전체</a>
+        <a href="{{ url_for('board.list_posts', category='notice') }}"
+           class="cat-tab {{ 'active' if category == 'notice' }}">📢 공지</a>
+        <a href="{{ url_for('board.list_posts', category='general') }}"
+           class="cat-tab {{ 'active' if category == 'general' }}">💬 일반</a>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;">
+        <!-- 검색 -->
+        <form method="GET" style="display:flex;gap:6px;">
+            <input type="hidden" name="category" value="{{ category }}">
+            <input type="text" name="q" value="{{ keyword }}"
+                   placeholder="🔍 제목/내용 검색"
+                   style="padding:7px 12px;border:1px solid var(--border);
+                          border-radius:8px;font-size:13px;width:180px;outline:none;">
+            <button type="submit" class="btn btn-secondary btn-sm">검색</button>
+            {% if keyword %}
+            <a href="{{ url_for('board.list_posts', category=category) }}"
+               class="btn btn-secondary btn-sm">✕</a>
+            {% endif %}
+        </form>
+        <a href="{{ url_for('board.write_post') }}" class="btn btn-primary">✏️ 글쓰기</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:60px;text-align:center;">번호</th>
+                    <th style="width:70px;text-align:center;">구분</th>
+                    <th>제목</th>
+                    <th style="width:80px;text-align:center;">작성자</th>
+                    <th style="width:100px;text-align:center;">작성일</th>
+                    <th style="width:60px;text-align:center;">조회</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- 공지 (항상 상단) -->
+                {% for post in notices %}
+                {% if not category or category == 'notice' %}
+                <tr class="notice-row">
+                    <td style="text-align:center;">
+                        <span style="color:#FF9F0A;font-size:12px;font-weight:700;">📢</span>
+                    </td>
+                    <td style="text-align:center;">
+                        <span style="background:#FF9F0A;color:#fff;font-size:10px;
+                                     font-weight:700;padding:2px 7px;border-radius:10px;">
+                            공지
+                        </span>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('board.view_post', post_id=post.id) }}"
+                           style="color:#1C1C1E;text-decoration:none;font-weight:600;">
+                            {{ post.title }}
+                        </a>
+                        {% if post.attach_count %}
+                        <span class="attach-icon">📎{{ post.attach_count }}</span>
+                        {% endif %}
+                        {% if post.comment_count %}
+                        <span class="comment-count">[{{ post.comment_count }}]</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;font-size:12px;">{{ post.author_name }}</td>
+                    <td style="text-align:center;font-size:11px;color:#6E6E73;">
+                        {{ post.created_at[:10] }}
+                    </td>
+                    <td style="text-align:center;font-size:12px;color:#6E6E73;">
+                        {{ post.view_count }}
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+
+                <!-- 일반 글 -->
+                {% for post in posts %}
+                <tr>
+                    <td style="text-align:center;font-size:12px;color:#6E6E73;">
+                        {{ total - (page-1)*15 - loop.index0 }}
+                    </td>
+                    <td style="text-align:center;">
+                        <span style="background:#F2F2F7;color:#6E6E73;font-size:10px;
+                                     padding:2px 7px;border-radius:10px;">
+                            일반
+                        </span>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('board.view_post', post_id=post.id) }}"
+                           style="color:#1C1C1E;text-decoration:none;">
+                            {{ post.title }}
+                        </a>
+                        {% if post.attach_count %}
+                        <span class="attach-icon">📎{{ post.attach_count }}</span>
+                        {% endif %}
+                        {% if post.comment_count %}
+                        <span class="comment-count">[{{ post.comment_count }}]</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;font-size:12px;">{{ post.author_name }}</td>
+                    <td style="text-align:center;font-size:11px;color:#6E6E73;">
+                        {{ post.created_at[:10] }}
+                    </td>
+                    <td style="text-align:center;font-size:12px;color:#6E6E73;">
+                        {{ post.view_count }}
+                    </td>
+                </tr>
+                {% endfor %}
+
+                {% if not notices and not posts %}
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="icon">📋</div>
+                            <p>게시글이 없습니다.<br>첫 번째 글을 작성해보세요!</p>
+                            <a href="{{ url_for('board.write_post') }}"
+                               class="btn btn-primary" style="margin-top:14px;">✏️ 글쓰기</a>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 페이지네이션 -->
+{% if total_pages > 1 %}
+<div style="display:flex;justify-content:center;gap:6px;margin-top:16px;">
+    {% if page > 1 %}
+    <a href="{{ url_for('board.list_posts', category=category, q=keyword, page=page-1) }}"
+       class="page-btn">‹</a>
+    {% endif %}
+    {% for p in range(1, total_pages+1) %}
+    {% if p >= page-2 and p <= page+2 %}
+    <a href="{{ url_for('board.list_posts', category=category, q=keyword, page=p) }}"
+       class="page-btn {{ 'active' if p == page }}">{{ p }}</a>
+    {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="{{ url_for('board.list_posts', category=category, q=keyword, page=page+1) }}"
+       class="page-btn">›</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

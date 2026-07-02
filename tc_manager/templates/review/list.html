@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}ALM TC 리뷰{% endblock %}
+{% block page_title %}📋 ALM TC 리뷰{% endblock %}
+
+{% block extra_css %}
+<style>
+.badge-draft        { background:#F2F2F7; color:#6E6E73; border:1px solid #D1D1D6; }
+.badge-inreview     { background:#E3F2FD; color:#1565C0; }
+.badge-blinreview   { background:#FFF8E1; color:#E65100; }
+.badge-reviewed     { background:#E8F5E9; color:#2E7D32; }
+
+.filter-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.filter-bar select, .filter-bar input {
+    padding:7px 11px; border:1px solid var(--border); border-radius:8px;
+    font-size:13px; color:var(--gray-dark); background:#fff; outline:none;
+}
+.filter-bar select:focus, .filter-bar input:focus { border-color:var(--blue); }
+
+.tc-id-link {
+    font-family:monospace; font-size:12px; color:#1428A0;
+    text-decoration:none; font-weight:700; border-bottom:1px dashed #1428A0;
+    white-space:nowrap;
+}
+.tc-id-link:hover { color:#0D1F80; border-bottom-style:solid; }
+.tc-id-text { font-family:monospace; font-size:12px; font-weight:600; color:#1C1C1E; }
+
+.sitl-id {
+    font-family:monospace; font-size:11px; color:#6E6E73;
+    background:#F2F2F7; padding:2px 6px; border-radius:4px;
+}
+
+.board-mini-badges { display:flex; flex-wrap:wrap; gap:3px; margin-top:5px; }
+.board-mini {
+    font-size:10px; padding:1px 6px; border-radius:10px;
+    white-space:nowrap; line-height:1.6;
+}
+.board-mini-draft        { background:#F2F2F7; color:#6E6E73; border:1px solid #D1D1D6; }
+.board-mini-inreview     { background:#E3F2FD; color:#1565C0; }
+.board-mini-blinreview   { background:#FFF8E1; color:#E65100; }
+.board-mini-reviewed     { background:#E8F5E9; color:#2E7D32; }
+
+/* 정렬 헤더 */
+.sort-th {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.sort-th:hover { background:#E8EAF6 !important; }
+.sort-icon {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    color: #6E6E73;
+    vertical-align: middle;
+}
+.sort-icon.active { color: #1428A0; font-weight:900; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── 현재 필터 파라미터 유지용 매크로 ── #}
+{% macro sort_url(col) %}
+{{ url_for('review.list_tc',
+    project_id=selected_project or '',
+    status=status_filter,
+    domain=domain_filter,
+    q=keyword,
+    sort=col,
+    dir='desc' if (sort_col == col and sort_dir == 'asc') else 'asc'
+) }}
+{% endmacro %}
+
+{% macro sort_icon(col) %}
+{% if sort_col == col %}
+    <span class="sort-icon active">{{ '▲' if sort_dir == 'asc' else '▼' }}</span>
+{% else %}
+    <span class="sort-icon">⇅</span>
+{% endif %}
+{% endmacro %}
+
+<!-- 상태별 요약 카드 -->
+<div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
+    {% for st in STATUS_LIST %}
+    {% set cnt = tc_list | selectattr('overall_status','equalto',st) | list | length %}
+    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;
+                padding:12px 18px;min-width:100px;text-align:center;">
+        <div style="font-size:11px;color:#6E6E73;margin-bottom:4px;">{{ st }}</div>
+        <div style="font-size:22px;font-weight:800;color:#1428A0;">{{ cnt }}</div>
+    </div>
+    {% endfor %}
+    <div style="background:#1428A0;border-radius:10px;padding:12px 18px;
+                min-width:100px;text-align:center;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:4px;">전체</div>
+        <div style="font-size:22px;font-weight:800;color:#fff;">{{ tc_list|length }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+        <!-- 필터 -->
+        <form method="GET" class="filter-bar" style="flex:1;" id="filter-form">
+            <!-- 정렬 파라미터 유지 -->
+            <input type="hidden" name="sort" value="{{ sort_col }}">
+            <input type="hidden" name="dir"  value="{{ sort_dir }}">
+            <input type="hidden" name="alm_status" value="{{ alm_status_filter }}">
+
+            <select name="project_id" onchange="this.form.submit()">
+                <option value="">📁 전체 프로젝트</option>
+                {% for p in projects %}
+                <option value="{{ p.id }}" {% if selected_project == p.id %}selected{% endif %}>
+                    {{ p.name }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <!-- ALM TC 상태 필터 -->
+            <select name="alm_status" onchange="this.form.submit()">
+                <option value="">📌 ALM상태</option>
+                {% for st in alm_status_list %}
+                <option value="{{ st }}" {% if alm_status_filter == st %}selected{% endif %}>
+                    {{ st }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <select name="status" onchange="this.form.submit()">
+                <option value="">🔘 리뷰상태</option>
+                {% for st in STATUS_LIST %}
+                <option value="{{ st }}" {% if status_filter == st %}selected{% endif %}>
+                    {{ STATUS_STYLE[st][1] }} {{ st }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <select name="domain" onchange="this.form.submit()">
+                <option value="">🏷️ Domain</option>
+                {% for d in domain_list %}
+                <option value="{{ d }}" {% if domain_filter == d %}selected{% endif %}>
+                    {{ d }}
+                </option>
+                {% endfor %}
+            </select>
+            <input type="text" name="q" value="{{ keyword }}"
+                   placeholder="🔍 TC ID / SITL-ID / 제목 / SubSystem 검색"
+                   style="min-width:220px;">
+            <button type="submit" class="btn btn-primary btn-sm">검색</button>
+            {% if keyword or status_filter or selected_project or domain_filter or alm_status_filter %}
+            <a href="{{ url_for('review.list_tc') }}" class="btn btn-secondary btn-sm">초기화</a>
+            {% endif %}
+        </form>
+
+        <div style="display:flex;gap:8px;margin-left:auto;">
+            {% if session.role == 'admin' %}
+            <a href="{{ url_for('review.upload_tc') }}" class="btn btn-primary">
+                📤 TC 업로드
+            </a>
+            <a href="{{ url_for('review.upload_review_status') }}"
+               class="btn btn-secondary" title="기존 엑셀 리뷰 상태를 DB에 일괄 적용">
+                📊 상태 업데이트
+            </a>
+            {% endif %}
+            <a href="{{ url_for('export.tc_list_excel',
+                       project_id=selected_project or '',
+                       status=status_filter,
+                       domain=domain_filter) }}"
+               class="btn btn-secondary">📥 Excel</a>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        {% if tc_list %}
+        <table>
+            <thead>
+                <tr>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('project_name')|trim }}'">
+                        프로젝트{{ sort_icon('project_name') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('tc_id')|trim }}'">
+                        TC ID{{ sort_icon('tc_id') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('sub_system')|trim }}'">
+                        Sub System{{ sort_icon('sub_system') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('ip')|trim }}'">
+                        IP{{ sort_icon('ip') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('sitl_id')|trim }}'">
+                        SITL-ID{{ sort_icon('sitl_id') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('title')|trim }}'">
+                        제목{{ sort_icon('title') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('domain')|trim }}'">
+                        Domain{{ sort_icon('domain') }}
+                    </th>
+                    <th class="sort-th" onclick="location.href='{{ sort_url('alm_status')|trim }}'">
+                        ALM TC 상태{{ sort_icon('alm_status') }}
+                    </th>
+                    <th class="sort-th" style="text-align:center; min-width:160px;"
+                        onclick="location.href='{{ sort_url('overall_status')|trim }}'">
+                        전체상태 / 보드별{{ sort_icon('overall_status') }}
+                    </th>
+                    <th style="text-align:center;">상세</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tc in tc_list %}
+                {% set board_statuses = board_status_map.get(tc.id, []) %}
+                <tr>
+                    <!-- 프로젝트 -->
+                    <td>
+                        <span style="font-size:11px;background:#EEF1FB;color:#1428A0;
+                                     padding:2px 7px;border-radius:6px;font-weight:600;
+                                     white-space:nowrap;"
+                              title="{% if tc.target_project %}공유 프로젝트: {{ tc.target_project }}{% endif %}">
+                            {{ tc.project_name or '-' }}
+                        </span>
+                        {% if tc.target_project and ',' in tc.target_project %}
+                        <span style="font-size:9px;color:#FF9F0A;margin-left:2px;"
+                              title="공유 TC: {{ tc.target_project }}">⚡</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- TC ID -->
+                    <td>
+                        {% if tc.tc_url %}
+                        <a href="{{ tc.tc_url }}" target="_blank"
+                           class="tc-id-link" title="Polarion ALM에서 열기">
+                            {{ tc.tc_id or '-' }}<span style="font-size:9px;"> ↗</span>
+                        </a>
+                        {% else %}
+                        <span class="tc-id-text">{{ tc.tc_id or '-' }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Sub System -->
+                    <td class="text-muted" style="white-space:nowrap;">
+                        {{ tc.sub_system or '-' }}
+                    </td>
+
+                    <!-- IP -->
+                    <td class="text-muted" style="white-space:nowrap;">
+                        {{ tc.ip or '-' }}
+                    </td>
+
+                    <!-- SITL-ID -->
+                    <td>
+                        {% if tc.sitl_id %}
+                        <span class="sitl-id">{{ tc.sitl_id }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- 제목 -->
+                    <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;
+                               white-space:nowrap;" title="{{ tc.title }}">
+                        {{ tc.title or '-' }}
+                    </td>
+
+                    <!-- Domain -->
+                    <td class="text-muted"
+                        style="max-width:100px;overflow:hidden;text-overflow:ellipsis;
+                               white-space:nowrap;" title="{{ tc.domain }}">
+                        {{ tc.domain or '-' }}
+                    </td>
+
+                    <!-- ALM TC 상태 -->
+                    <td style="text-align:center;">
+                        {% if tc.alm_status %}
+                        <span style="font-size:11px;padding:2px 8px;border-radius:10px;
+                                     background:#F2F2F7;color:#6E6E73;
+                                     border:1px solid #D1D1D6;white-space:nowrap;">
+                            {{ tc.alm_status }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- 전체상태 + 보드별 -->
+                    <td style="text-align:center;">
+                        {% set st = tc.overall_status %}
+                        {% set si = STATUS_STYLE.get(st, ('badge-draft','⬜')) %}
+                        <span class="badge {{ si[0] }}">{{ si[1] }} {{ st }}</span>
+                        {% if board_statuses %}
+                        <div class="board-mini-badges" style="justify-content:center;">
+                            {% for bs in board_statuses %}
+                            {% if bs.status == 'Reviewed' %}{% set mc = 'board-mini-reviewed' %}
+                            {% elif bs.status == 'In Review' %}{% set mc = 'board-mini-inreview' %}
+                            {% elif bs.status == 'BL in Review' %}{% set mc = 'board-mini-blinreview' %}
+                            {% else %}{% set mc = 'board-mini-draft' %}{% endif %}
+                            <span class="board-mini {{ mc }}"
+                                  title="{{ bs.board }}: {{ bs.status }}">
+                                {{ bs.board }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
+
+                    <!-- 상세 -->
+                    <td style="text-align:center;">
+                        <a href="{{ url_for('review.tc_detail', tc_id=tc.id) }}"
+                           class="btn btn-secondary btn-sm">보기</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">📋</div>
+            <p>
+                {% if keyword or status_filter or selected_project or domain_filter %}
+                    검색 결과가 없습니다.
+                {% else %}
+                    TC 데이터가 없습니다.<br>관리자가 엑셀 파일을 업로드하면 여기에 표시됩니다.
+                {% endif %}
+            </p>
+            {% if session.role == 'admin' and not keyword %}
+            <a href="{{ url_for('review.upload_tc') }}"
+               class="btn btn-primary" style="margin-top:14px;">📤 TC 업로드</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if tc_list %}
+<div style="margin-top:12px;font-size:12px;color:#6E6E73;display:flex;gap:16px;flex-wrap:wrap;">
+    <span>💡 <strong style="color:#1428A0;">TC ID ↗</strong> → Polarion ALM 열기</span>
+    <span>⚡ → 2개 이상 프로젝트 공유 TC</span>
+    <span>🔍 검색: TC ID, SITL-ID, 제목, SubSystem, IP 모두 지원</span>
+    <span>▲▼ 컬럼 헤더 클릭 → 정렬</span>
+</div>
+{% endif %}
+{% endblock %}

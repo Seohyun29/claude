@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{% if action=='add' %}프로젝트 추가{% else %}프로젝트 수정{% endif %}{% endblock %}
+{% block page_title %}{% if action=='add' %}➕ 프로젝트 추가{% else %}✏️ 프로젝트 수정{% endif %}{% endblock %}
+
+{% block content %}
+<div style="max-width:480px;">
+    <div class="card">
+        <div class="card-header">
+            <h2>{% if action=='add' %}새 프로젝트 등록{% else %}{{ project.name }} 수정{% endif %}</h2>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+
+                <div class="form-group">
+                    <label class="form-label">프로젝트명 *</label>
+                    <input type="text" name="name" class="form-control"
+                           value="{{ project.name if project else '' }}"
+                           placeholder="예: 프로젝트1"
+                           required autofocus>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">설명 (선택)</label>
+                    <input type="text" name="description" class="form-control"
+                           value="{{ project.description if project else '' }}"
+                           placeholder="예: SoC A 검증 프로젝트">
+                </div>
+
+                {% if action == 'edit' %}
+                <div class="form-group">
+                    <label class="form-label">상태</label>
+                    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;">
+                        <input type="checkbox" name="is_active" id="is_active"
+                               {% if project.is_active %}checked{% endif %}
+                               style="width:18px;height:18px;cursor:pointer;">
+                        <label for="is_active" style="font-size:14px;cursor:pointer;">
+                            활성 (TC 리뷰·IT 일정에서 선택 가능)
+                        </label>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div style="display:flex;gap:10px;margin-top:8px;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if action=='add' %}➕ 등록{% else %}💾 저장{% endif %}
+                    </button>
+                    <a href="{{ url_for('projects.list_projects') }}" class="btn btn-secondary">취소</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

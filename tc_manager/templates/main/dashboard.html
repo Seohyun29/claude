@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+{% block title %}대시보드{% endblock %}
+{% block page_title %}🏠 대시보드{% endblock %}
+
+{% block extra_css %}
+<style>
+.stat-card {
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    padding:18px 22px; text-align:center;
+}
+.stat-card .num  { font-size:28px; font-weight:800; color:#1428A0; line-height:1.1; }
+.stat-card .label{ font-size:11px; color:#6E6E73; margin-top:4px; }
+
+.progress-wrap { background:#F2F2F7; border-radius:20px; height:10px; overflow:hidden; margin-top:6px; }
+.progress-fill { height:100%; border-radius:20px; background:linear-gradient(90deg,#1428A0,#30D158); transition:width 0.5s; }
+
+.activity-item {
+    display:flex; gap:12px; align-items:flex-start;
+    padding:10px 0; border-bottom:1px solid #F2F2F7;
+}
+.activity-item:last-child { border-bottom:none; }
+.activity-dot {
+    width:8px; height:8px; border-radius:50%; margin-top:5px; flex-shrink:0;
+}
+.dot-reviewed     { background:#30D158; }
+.dot-inreview     { background:#0A84FF; }
+.dot-blinreview   { background:#FF9F0A; }
+.dot-draft        { background:#D1D1D6; }
+
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+
+.it-slot {
+    padding:10px 14px; border-radius:8px; font-size:13px;
+    background:#EEF1FB; border-left:3px solid #1428A0; margin-bottom:8px;
+}
+.it-empty { color:#6E6E73; font-size:13px; padding:8px 0; }
+
+.pending-item {
+    display:flex; align-items:center; gap:10px;
+    padding:8px 0; border-bottom:1px solid #F2F2F7; font-size:13px;
+}
+.pending-item:last-child { border-bottom:none; }
+
+@media (max-width:900px) {
+    .grid-2 { grid-template-columns:1fr; }
+    .grid-4 { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- 전체 요약 수치 -->
+<div class="grid-4" style="margin-bottom:20px;">
+    <div class="stat-card">
+        <div class="num">{{ total_tc }}</div>
+        <div class="label">전체 TC</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #30D158;">
+        <div class="num" style="color:#2E7D32;">{{ summary_map.get('Reviewed', 0) }}</div>
+        <div class="label">🟢 Reviewed</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #0A84FF;">
+        <div class="num" style="color:#1565C0;">{{ summary_map.get('In Review', 0) }}</div>
+        <div class="label">🔵 In Review</div>
+    </div>
+    <div class="stat-card" style="border-top:3px solid #D1D1D6;">
+        <div class="num" style="color:#6E6E73;">{{ summary_map.get('Draft', 0) }}</div>
+        <div class="label">⬜ Draft</div>
+    </div>
+</div>
+
+<div class="grid-2" style="margin-bottom:18px;">
+
+    <!-- 오늘 IT 일정 -->
+    <div class="card">
+        <div class="card-header">
+            <h2>🧪 오늘의 IT 일정</h2>
+            <span class="text-muted">{{ today }}</span>
+        </div>
+        <div class="card-body">
+            <div style="margin-bottom:14px;">
+                <div style="font-size:11px;font-weight:700;color:#6E6E73;
+                            letter-spacing:.5px;margin-bottom:8px;">📍 DSR</div>
+                {% if loc1_schedules %}
+                    {% for s in loc1_schedules %}
+                    <div class="it-slot">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                <strong>{{ s.project_name or '미정' }}</strong>
+                                {% if s.board_name %} · <span style="color:#1428A0;">{{ s.board_name }}</span>{% endif %}
+                            </div>
+                            {% if s.jenkins_job %}
+                            <button onclick="checkDashBuild('{{ s.jenkins_job }}','dsr-{{ loop.index }}')"
+                                    style="font-size:10px;background:#EEF1FB;border:1px solid #1428A0;
+                                           color:#1428A0;padding:2px 8px;border-radius:6px;cursor:pointer;">
+                                📡 빌드확인
+                            </button>
+                            {% endif %}
+                        </div>
+                        {% if s.jenkins_job %}
+                        <div id="dsr-{{ loop.index }}" style="font-size:11px;color:#6E6E73;margin-top:3px;"></div>
+                        {% endif %}
+                        {% if s.notes %}<div style="font-size:11px;color:#6E6E73;margin-top:2px;">{{ s.notes }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="it-empty">오늘 일정 없음</div>
+                {% endif %}
+            </div>
+            <div>
+                <div style="font-size:11px;font-weight:700;color:#6E6E73;
+                            letter-spacing:.5px;margin-bottom:8px;">📍 Tera</div>
+                {% if loc2_schedules %}
+                    {% for s in loc2_schedules %}
+                    <div class="it-slot">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                <strong>{{ s.project_name or '미정' }}</strong>
+                                {% if s.board_name %} · <span style="color:#1428A0;">{{ s.board_name }}</span>{% endif %}
+                            </div>
+                            {% if s.jenkins_job %}
+                            <button onclick="checkDashBuild('{{ s.jenkins_job }}','tera-{{ loop.index }}')"
+                                    style="font-size:10px;background:#EEF1FB;border:1px solid #1428A0;
+                                           color:#1428A0;padding:2px 8px;border-radius:6px;cursor:pointer;">
+                                📡 빌드확인
+                            </button>
+                            {% endif %}
+                        </div>
+                        {% if s.jenkins_job %}
+                        <div id="tera-{{ loop.index }}" style="font-size:11px;color:#6E6E73;margin-top:3px;"></div>
+                        {% endif %}
+                        {% if s.notes %}<div style="font-size:11px;color:#6E6E73;margin-top:2px;">{{ s.notes }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="it-empty">오늘 일정 없음</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 나의 리뷰 현황 -->
+    <div class="card">
+        <div class="card-header">
+            <h2>👤 나의 리뷰 현황</h2>
+            <span class="text-muted">{{ session.user_name }}</span>
+        </div>
+        <div class="card-body">
+            {% if my_stats and my_stats.total %}
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+                <div style="text-align:center;">
+                    <div style="font-size:20px;font-weight:800;color:#6E6E73;">{{ my_stats.draft or 0 }}</div>
+                    <div style="font-size:10px;color:#6E6E73;">Draft</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:20px;font-weight:800;color:#1565C0;">{{ my_stats.in_review or 0 }}</div>
+                    <div style="font-size:10px;color:#6E6E73;">In Review</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:20px;font-weight:800;color:#E65100;">{{ my_stats.bl_in_review or 0 }}</div>
+                    <div style="font-size:10px;color:#6E6E73;">BL in Review</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:20px;font-weight:800;color:#2E7D32;">{{ my_stats.reviewed or 0 }}</div>
+                    <div style="font-size:10px;color:#6E6E73;">Reviewed</div>
+                </div>
+            </div>
+
+            {% if my_pending %}
+            <div style="font-size:11px;font-weight:700;color:#6E6E73;
+                        margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">
+                미완료 항목
+            </div>
+            {% for item in my_pending %}
+            <div class="pending-item">
+                {% if item.status == 'In Review' %}
+                    <span style="color:#1565C0;font-size:11px;font-weight:700;
+                                 background:#E3F2FD;padding:2px 7px;border-radius:8px;
+                                 white-space:nowrap;">🔵 {{ item.status }}</span>
+                {% elif item.status == 'BL in Review' %}
+                    <span style="color:#E65100;font-size:11px;font-weight:700;
+                                 background:#FFF8E1;padding:2px 7px;border-radius:8px;
+                                 white-space:nowrap;">🟡 BL</span>
+                {% else %}
+                    <span style="color:#6E6E73;font-size:11px;font-weight:700;
+                                 background:#F2F2F7;padding:2px 7px;border-radius:8px;
+                                 white-space:nowrap;">⬜ Draft</span>
+                {% endif %}
+                <div style="overflow:hidden;">
+                    <div style="font-weight:600;white-space:nowrap;overflow:hidden;
+                                text-overflow:ellipsis;">
+                        {% if item.tc_url %}
+                        <a href="{{ item.tc_url }}" target="_blank"
+                           style="color:#1428A0;text-decoration:none;">
+                            {{ item.tc_id }}
+                        </a>
+                        {% else %}{{ item.tc_id }}{% endif %}
+                        <span style="color:#6E6E73;font-weight:400;font-size:12px;margin-left:4px;">
+                            {{ item.board_name }}
+                        </span>
+                    </div>
+                    <div style="font-size:11px;color:#6E6E73;white-space:nowrap;
+                                overflow:hidden;text-overflow:ellipsis;">
+                        {{ item.project_name }} · {{ item.title }}
+                    </div>
+                </div>
+                <a href="{{ url_for('review.tc_detail', tc_id=item.tc_db_id) }}"
+                   style="margin-left:auto;color:#1428A0;font-size:11px;white-space:nowrap;
+                          text-decoration:none;">보기 →</a>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% else %}
+            <div class="empty-state" style="padding:24px;">
+                <div class="icon" style="font-size:28px;">✅</div>
+                <p>담당 중인 리뷰 항목이 없습니다.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 프로젝트별 리뷰 진행률 -->
+{% if project_stats %}
+<div class="card" style="margin-bottom:18px;">
+    <div class="card-header">
+        <h2>📊 프로젝트별 리뷰 진행률</h2>
+        <div style="display:flex;gap:8px;">
+            <a href="{{ url_for('export.tc_list_excel') }}"
+               class="btn btn-secondary btn-sm">📥 TC목록 Excel</a>
+            <a href="{{ url_for('export.summary_excel') }}"
+               class="btn btn-secondary btn-sm">📥 통합현황 Excel</a>
+        </div>
+    </div>
+    <div class="card-body">
+        {% for ps in project_stats %}
+        <div style="margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <div style="font-size:14px;font-weight:700;">
+                    📁 {{ ps.project.name }}
+                    <span style="font-size:11px;color:#6E6E73;font-weight:400;margin-left:6px;">
+                        전체 {{ ps.total }}개
+                    </span>
+                </div>
+                <div style="font-size:14px;font-weight:800;color:#1428A0;">{{ ps.pct }}%</div>
+            </div>
+            <div class="progress-wrap">
+                <div class="progress-fill" style="width:{{ ps.pct }}%;"></div>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:6px;font-size:11px;flex-wrap:wrap;">
+                <span style="color:#2E7D32;">🟢 Reviewed: <strong>{{ ps.reviewed }}</strong></span>
+                <span style="color:#1565C0;">🔵 In Review: <strong>{{ ps.in_review }}</strong></span>
+                <span style="color:#E65100;">🟡 BL in Review: <strong>{{ ps.bl_in_review }}</strong></span>
+                <span style="color:#6E6E73;">⬜ Draft: <strong>{{ ps.draft }}</strong></span>
+            </div>
+        </div>
+        {% if not loop.last %}
+        <hr style="border:none;border-top:1px solid #F2F2F7;margin:4px 0 18px;">
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 팀 전체 최근 활동 -->
+<div class="card">
+    <div class="card-header">
+        <h2>🔔 최근 활동</h2>
+        <span class="text-muted">팀 전체 최근 15건</span>
+    </div>
+    <div class="card-body" style="padding:14px 22px;">
+        {% if recent_activities %}
+        {% for act in recent_activities %}
+        {% if act.status == 'Reviewed' %}
+            {% set dot = 'dot-reviewed' %}
+        {% elif act.status == 'In Review' %}
+            {% set dot = 'dot-inreview' %}
+        {% elif act.status == 'BL in Review' %}
+            {% set dot = 'dot-blinreview' %}
+        {% else %}
+            {% set dot = 'dot-draft' %}
+        {% endif %}
+        <div class="activity-item">
+            <div class="activity-dot {{ dot }}"></div>
+            <div style="flex:1;overflow:hidden;">
+                <div style="font-size:13px;font-weight:600;">
+                    <span style="color:#1428A0;">{{ act.reviewer_name or '?' }}</span>
+                    <span style="color:#6E6E73;font-weight:400;"> → </span>
+                    {% if act.tc_url %}
+                    <a href="{{ act.tc_url }}" target="_blank"
+                       style="color:#1C1C1E;text-decoration:none;font-family:monospace;font-size:12px;">
+                        {{ act.tc_id }}
+                    </a>
+                    {% else %}
+                    <span style="font-family:monospace;font-size:12px;">{{ act.tc_id }}</span>
+                    {% endif %}
+                    <span style="color:#6E6E73;font-size:11px;margin-left:4px;">
+                        ({{ act.board_name }})
+                    </span>
+                </div>
+                <div style="font-size:11px;color:#6E6E73;margin-top:2px;
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    {{ act.project_name }} · {{ act.title }}
+                    {% if act.comment %}
+                    · <em>{{ act.comment }}</em>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+                <span style="font-size:11px;padding:2px 8px;border-radius:8px;
+                    {% if act.status == 'Reviewed' %}background:#E8F5E9;color:#2E7D32;
+                    {% elif act.status == 'In Review' %}background:#E3F2FD;color:#1565C0;
+                    {% elif act.status == 'BL in Review' %}background:#FFF8E1;color:#E65100;
+                    {% else %}background:#F2F2F7;color:#6E6E73;{% endif %}
+                    font-weight:700;">
+                    {{ act.status }}
+                </span>
+                <div style="font-size:10px;color:#6E6E73;margin-top:3px;">
+                    {{ act.updated_at[:16] if act.updated_at else '' }}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state" style="padding:32px;">
+            <div class="icon">🔔</div>
+            <p>아직 활동 내역이 없습니다.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+async function checkDashBuild(jobPath, elId) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = '⚙️ 조회중...';
+    try {
+        const resp = await fetch(
+            '{{ url_for("integration.jenkins_job_status") }}?path=' +
+            encodeURIComponent(jobPath)
+        );
+        const data = await resp.json();
+        if (data.ok) {
+            const b = data.build;
+            const resultMap = {
+                'SUCCESS':  '✅ 빌드 성공',
+                'FAILURE':  '❌ 빌드 실패',
+                'UNSTABLE': '⚠️ 불안정',
+                'ABORTED':  '⏹ 중단',
+            };
+            const label = b.building ? '⚙️ 빌드 진행중...'
+                        : (resultMap[b.result] || b.result || '알수없음');
+            el.innerHTML = `${label} <span style="color:#9E9E9E;">#${b.number} · ${b.date}</span>`;
+        } else {
+            el.textContent = '조회 실패';
+        }
+    } catch(e) {
+        el.textContent = '오류';
+    }
+}
+</script>
+{% endblock %}

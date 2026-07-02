@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}리뷰 통합 현황{% endblock %}
+{% block page_title %}📊 리뷰 통합 현황{% endblock %}
+
+{% block extra_css %}
+<style>
+.badge-draft        { background:#F2F2F7; color:#6E6E73; border:1px solid #D1D1D6; }
+.badge-inreview     { background:#E3F2FD; color:#1565C0; }
+.badge-blinreview   { background:#FFF8E1; color:#E65100; }
+.badge-reviewed     { background:#E8F5E9; color:#2E7D32; }
+.badge-approved     { background:#1428A0; color:#fff; }
+
+.progress-bar-wrap {
+    background:#F2F2F7; border-radius:20px;
+    height:8px; overflow:hidden; margin-top:4px;
+}
+.progress-bar-fill {
+    height:100%; border-radius:20px;
+    background:linear-gradient(90deg,#1428A0,#1E3FC2);
+    transition:width 0.4s ease;
+}
+.stat-cell {
+    text-align:center; padding:8px 6px;
+    font-size:13px;
+}
+.stat-cell .num { font-size:15px; font-weight:700; color:#1428A0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if not summary_data %}
+<div class="empty-state">
+    <div class="icon">📊</div>
+    <p>등록된 프로젝트 또는 TC 데이터가 없습니다.</p>
+</div>
+{% else %}
+<div style="text-align:right;margin-bottom:14px;">
+    <a href="{{ url_for('export.summary_excel') }}"
+       class="btn btn-secondary">📥 통합현황 Excel 다운로드</a>
+</div>
+{% endif %}
+
+{% for item in summary_data %}
+<div class="card" style="margin-bottom:24px;">
+
+    <!-- 프로젝트 헤더 -->
+    <div class="card-header" style="background:#EEF1FB;">
+        <div>
+            <h2>📁 {{ item.project.name }}</h2>
+            <div style="margin-top:6px;font-size:13px;color:#6E6E73;">
+                전체 TC <strong style="color:#1428A0;">{{ item.total_tc }}</strong>개
+                · Reviewed
+                <strong style="color:#2E7D32;">{{ item.reviewed_tc }}</strong>개
+            </div>
+        </div>
+        <!-- 진행률 -->
+        <div style="min-width:160px;">
+            {% set pct = ((item.reviewed_tc / item.total_tc * 100) | round(1)) if item.total_tc > 0 else 0 %}
+            <div style="font-size:13px;text-align:right;font-weight:700;color:#1428A0;">
+                {{ pct }}%
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" style="width:{{ pct }}%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 팀원별 × 보드별 현황 테이블 -->
+    {% if item.boards %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>팀원</th>
+                    {% for b in item.boards %}
+                    <th colspan="3" style="text-align:center;border-left:1px solid #D1D1D6;">
+                        🖥️ {{ b.name }}
+                        {% if b.version %}<span style="font-weight:400;font-size:10px;">v{{ b.version }}</span>{% endif %}
+                    </th>
+                    {% endfor %}
+                </tr>
+                <tr style="background:#FAFAFA;">
+                    <th></th>
+                    {% for b in item.boards %}
+                    <th style="text-align:center;font-size:10px;border-left:1px solid #D1D1D6;color:#0A84FF;">
+                        🔵 In Review
+                    </th>
+                    <th style="text-align:center;font-size:10px;color:#E65100;">
+                        🟡 BL
+                    </th>
+                    <th style="text-align:center;font-size:10px;color:#2E7D32;">
+                        🟢 Reviewed
+                    </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for ms in item.member_stats %}
+                <tr>
+                    <td>
+                        <strong>{{ ms.member.name }}</strong>
+                        <div style="font-size:10px;color:#6E6E73;">
+                            {% if ms.member.location == 'DSR' %}📍 DSR{% else %}📍 Tera{% endif %}
+                        </div>
+                    </td>
+                    {% for bs in ms.board_stats %}
+                    {% set s = bs.stats %}
+                    <td class="stat-cell" style="border-left:1px solid #F2F2F7;">
+                        {% if s.in_review and s.in_review > 0 %}
+                        <span class="num" style="color:#1565C0;">{{ s.in_review }}</span>
+                        {% else %}<span style="color:#D1D1D6;">-</span>{% endif %}
+                    </td>
+                    <td class="stat-cell">
+                        {% if s.bl_in_review and s.bl_in_review > 0 %}
+                        <span class="num" style="color:#E65100;">{{ s.bl_in_review }}</span>
+                        {% else %}<span style="color:#D1D1D6;">-</span>{% endif %}
+                    </td>
+                    <td class="stat-cell">
+                        {% if s.reviewed and s.reviewed > 0 %}
+                        <span class="num" style="color:#2E7D32;">{{ s.reviewed }}</span>
+                        {% else %}<span style="color:#D1D1D6;">-</span>{% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="padding:20px;text-align:center;color:#6E6E73;font-size:13px;">
+        이 프로젝트에 등록된 장비가 없습니다.
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}IT 일정 관리{% endblock %}
+{% block page_title %}🧪 IT 일정 관리{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start;">
+
+    <!-- 일정 목록 -->
+    <div class="card">
+        <div class="card-header">
+            <h2>IT 일정 목록</h2>
+            <span class="text-muted">총 {{ schedules|length }}개</span>
+        </div>
+        <div class="table-wrap">
+            {% if schedules %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>날짜</th>
+                        <th>장소</th>
+                        <th>프로젝트</th>
+                        <th>장비</th>
+                        <th>Jenkins Job</th>
+                        <th>상태</th>
+                        <th>메모</th>
+                        <th style="text-align:center;">삭제</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in schedules %}
+                    <tr {% if s.scheduled_date == today %}
+                        style="background:#EEF1FB;"{% endif %}>
+                        <td style="white-space:nowrap;font-weight:{% if s.scheduled_date == today %}700{% else %}400{% endif %};">
+                            {{ s.scheduled_date }}
+                            {% if s.scheduled_date == today %}
+                            <span style="font-size:10px;color:#1428A0;margin-left:4px;">
+                                오늘
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span style="background:#F2F2F7;padding:2px 8px;
+                                         border-radius:6px;font-size:12px;">
+                                📍 {{ s.location }}
+                            </span>
+                        </td>
+                        <td style="font-weight:600;">{{ s.project_name or '-' }}</td>
+                        <td class="text-muted">{{ s.board_name or '-' }}</td>
+                        <td style="max-width:160px;overflow:hidden;
+                                   text-overflow:ellipsis;white-space:nowrap;"
+                            title="{{ s.jenkins_job }}">
+                            {% if s.jenkins_job %}
+                            <span style="font-family:monospace;font-size:11px;
+                                         color:#1428A0;">
+                                {{ s.jenkins_job.split('/')[-1] if '/' in (s.jenkins_job or '') else s.jenkins_job }}
+                            </span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td>
+                            {% if s.status == 'done' %}
+                            <span class="badge badge-active">완료</span>
+                            {% elif s.status == 'in_progress' %}
+                            <span class="badge badge-inreview">진행중</span>
+                            {% else %}
+                            <span class="badge badge-member">예정</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted" style="max-width:120px;overflow:hidden;
+                                                       text-overflow:ellipsis;white-space:nowrap;">
+                            {{ s.notes or '-' }}
+                        </td>
+                        <td style="text-align:center;">
+                            <form method="POST"
+                                  action="{{ url_for('integration.delete_it_schedule',
+                                            schedule_id=s.id) }}">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                        onclick="return confirm('삭제할까요?')">🗑️</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="icon">📅</div>
+                <p>등록된 IT 일정이 없습니다.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 등록 폼 -->
+    <div class="card" style="position:sticky;top:70px;">
+        <div class="card-header">
+            <h2>➕ 일정 등록</h2>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('integration.add_it_schedule') }}">
+                <div class="form-group">
+                    <label class="form-label">프로젝트 *</label>
+                    <select name="project_id" class="form-control" required
+                            onchange="filterBoards(this.value)">
+                        <option value="">-- 선택 --</option>
+                        {% for p in projects %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">장비(보드)</label>
+                    <select name="board_id" class="form-control" id="board-select">
+                        <option value="">-- 선택 (선택사항) --</option>
+                        {% for b in boards_all %}
+                        <option value="{{ b.id }}" data-project="{{ b.project_id }}">
+                            {{ b.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">장소 *</label>
+                    <select name="location" class="form-control" required>
+                        <option value="DSR">📍 DSR</option>
+                        <option value="Tera">📍 Tera</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">날짜 *</label>
+                    <input type="date" name="scheduled_date" class="form-control"
+                           value="{{ today }}" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Jenkins Job (선택사항)</label>
+                    <input type="text" name="jenkins_job" class="form-control"
+                           placeholder="예: /job/ProjectA/job/daily_build"
+                           style="font-family:monospace;font-size:12px;">
+                    <div class="text-muted mt-1">
+                        <a href="{{ url_for('integration.jenkins_jobs') }}"
+                           style="color:#1428A0;text-decoration:none;">
+                            🔧 Job 탐색에서 선택하기 →
+                        </a>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">메모</label>
+                    <input type="text" name="notes" class="form-control"
+                           placeholder="예: 신규 이미지 검증">
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;">
+                    📅 등록
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div style="margin-top:14px;padding:12px 16px;background:#EEF1FB;
+            border-radius:10px;font-size:12.5px;color:#1428A0;">
+    ℹ️ 장소별 하루 최대 <strong>2개</strong>까지 등록 가능합니다.
+    Jenkins Job을 연결하면 대시보드에서 빌드 상태를 확인할 수 있어요.
+</div>
+
+<script>
+function filterBoards(projectId) {
+    const sel = document.getElementById('board-select');
+    for (let opt of sel.options) {
+        if (!opt.value) continue;
+        opt.style.display = (opt.dataset.project == projectId) ? '' : 'none';
+    }
+    sel.value = '';
+}
+</script>
+{% endblock %}

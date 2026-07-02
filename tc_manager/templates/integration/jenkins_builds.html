@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Jenkins 빌드 목록{% endblock %}
+{% block page_title %}🏗️ Jenkins 빌드 목록{% endblock %}
+
+{% block extra_css %}
+<style>
+.build-status-success { color:#2E7D32; font-weight:700; }
+.build-status-failure { color:#B71C1C; font-weight:700; }
+.build-status-unstable{ color:#E65100; font-weight:700; }
+.build-status-running { color:#1565C0; font-weight:700; }
+.build-status-none    { color:#6E6E73; }
+.job-ball-blue      { color:#1565C0; }
+.job-ball-red       { color:#B71C1C; }
+.job-ball-yellow    { color:#E65100; }
+.job-ball-grey      { color:#6E6E73; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:14px;font-size:13px;color:#6E6E73;">
+    <a href="{{ url_for('integration.index') }}"
+       style="color:#1428A0;text-decoration:none;">🔗 연동 설정</a>
+    <span style="margin:0 8px;">›</span>
+    <span>Jenkins 빌드 목록</span>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Jenkins Job 목록
+            <span style="color:#6E6E73;font-weight:400;font-size:13px;">
+                {{ jobs|length }}개
+            </span>
+        </h2>
+        <a href="{{ url_for('integration.jenkins_builds') }}"
+           class="btn btn-secondary btn-sm">🔄 새로고침</a>
+    </div>
+
+    {% if jobs %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>상태</th>
+                    <th>Job 이름</th>
+                    <th>최신 빌드</th>
+                    <th>빌드 결과</th>
+                    <th style="text-align:center;">IT 일정 등록</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                {% set color = job.color or 'grey' %}
+                {% set last = job.lastBuild %}
+                <tr>
+                    <td>
+                        {% if 'blue' in color %}
+                        <span class="job-ball-blue">● 성공</span>
+                        {% elif 'red' in color %}
+                        <span class="job-ball-red">● 실패</span>
+                        {% elif 'yellow' in color %}
+                        <span class="job-ball-yellow">● 불안정</span>
+                        {% elif 'anime' in color %}
+                        <span class="job-ball-blue">⟳ 빌드중</span>
+                        {% else %}
+                        <span class="job-ball-grey">○ -</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ job.url }}" target="_blank"
+                           style="color:#1428A0;text-decoration:none;font-weight:600;">
+                            {{ job.name }} ↗
+                        </a>
+                    </td>
+                    <td class="text-muted">
+                        {% if last %}
+                        #{{ last.number }}
+                        {{ last.displayName if last.displayName else '' }}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>
+                        {% if last %}
+                        {% set result = last.result or 'RUNNING' %}
+                        <span class="build-status-{{ result.lower() }}">
+                            {{ result }}
+                        </span>
+                        {% else %}<span class="text-muted">-</span>{% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        <!-- IT 일정 등록 미니 폼 -->
+                        <button type="button"
+                                onclick="toggleScheduleForm('form-{{ loop.index }}')"
+                                class="btn btn-secondary btn-sm">
+                            📅 일정 등록
+                        </button>
+                        <div id="form-{{ loop.index }}"
+                             style="display:none;margin-top:10px;padding:12px;
+                                    background:#F2F2F7;border-radius:8px;text-align:left;">
+                            <form method="POST"
+                                  action="{{ url_for('integration.jenkins_schedule') }}">
+                                <input type="hidden" name="notes"
+                                       value="Jenkins: {{ job.name }} #{{ last.number if last else '?' }}">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;
+                                            gap:8px;margin-bottom:8px;">
+                                    <select name="project_id" class="form-control"
+                                            style="font-size:12px;padding:6px 10px;">
+                                        <option value="">프로젝트 선택</option>
+                                        {% for p in projects %}
+                                        <option value="{{ p.id }}">{{ p.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <select name="location" class="form-control"
+                                            style="font-size:12px;padding:6px 10px;">
+                                        <option value="DSR">📍 DSR</option>
+                                        <option value="Tera">📍 Tera</option>
+                                    </select>
+                                    <input type="date" name="scheduled_date"
+                                           class="form-control"
+                                           style="font-size:12px;padding:6px 10px;"
+                                           value="{{ today }}">
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        등록
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="icon">🏗️</div>
+        <p>Jenkins Job이 없거나 조회에 실패했습니다.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleScheduleForm(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+// 오늘 날짜 자동 입력
+const today = new Date().toISOString().split('T')[0];
+document.querySelectorAll('input[type="date"]').forEach(el => {
+    if (!el.value) el.value = today;
+});
+</script>
+{% endblock %}

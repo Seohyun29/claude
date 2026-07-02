@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}리뷰 상태 업데이트{% endblock %}
+{% block page_title %}📊 리뷰 상태 엑셀 업데이트{% endblock %}
+
+{% block content %}
+<div style="max-width:620px;">
+
+    <!-- 안내 -->
+    <div style="padding:16px 18px;background:#EEF1FB;border:1px solid #C5CAE9;
+                border-radius:10px;margin-bottom:20px;font-size:13px;
+                color:#1428A0;line-height:1.9;">
+        <strong>📋 기존 엑셀 리뷰 상태 → DB 일괄 적용</strong><br>
+        TC ID 기준으로 매칭하여 보드별 리뷰어·상태를 업데이트합니다.<br>
+        <span style="color:#6E6E73;">기존 진행된 리뷰 상태는 유지되고, 엑셀 값으로 덮어씁니다.</span>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2>파일 업로드</h2></div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+
+                <div class="form-group">
+                    <label class="form-label">프로젝트 *</label>
+                    <select name="project_id" class="form-control" required>
+                        <option value="">-- 선택 --</option>
+                        {% for p in projects %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">리뷰 상태 엑셀 파일 * (.xlsx / .csv)</label>
+                    <input type="file" name="file" class="form-control"
+                           accept=".xlsx,.xls,.csv" required>
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:8px;">
+                    <button type="submit" class="btn btn-primary">📊 상태 업데이트</button>
+                    <a href="{{ url_for('review.list_tc') }}" class="btn btn-secondary">취소</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 엑셀 컬럼 형식 안내 -->
+    <div style="margin-top:18px;padding:16px 18px;background:#F2F2F7;
+                border-radius:10px;font-size:12.5px;color:#6E6E73;line-height:2;">
+        <strong style="color:#1C1C1E;">📌 엑셀 헤더(1행) 컬럼 형식</strong><br>
+
+        <div style="overflow-x:auto;margin-top:8px;">
+            <table style="border-collapse:collapse;font-size:12px;width:100%;">
+                <thead>
+                    <tr style="background:#E8EAF6;">
+                        {% for h in ['TC ID','V720리뷰어','V720리뷰상태','V820리뷰어','V820리뷰상태','V920리뷰어','V920리뷰상태','V920BL리뷰어','V920BL리뷰상태'] %}
+                        <th style="padding:6px 10px;border:1px solid #C5CAE9;
+                                   white-space:nowrap;color:#1428A0;">{{ h }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        {% for v in ['TC001','홍길동','Reviewed','김철수','In Review','이영희','Draft','박민준','Reviewed'] %}
+                        <td style="padding:5px 10px;border:1px solid #D1D1D6;
+                                   text-align:center;white-space:nowrap;">{{ v }}</td>
+                        {% endfor %}
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top:12px;">
+            <strong style="color:#1C1C1E;">리뷰 상태 값:</strong>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#1428A0;">Draft</code>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#1428A0;">In Review</code>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#1428A0;">BL in Review</code>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#1428A0;">Reviewed</code><br>
+            <strong style="color:#1C1C1E;">리뷰어:</strong> 사용자 등록 화면의 이름과 정확히 일치해야 합니다.<br>
+            <strong style="color:#E65100;">V920BL 컬럼:</strong> Domain에 Baremetal Linux가 있는 TC에만 적용됩니다.
+        </div>
+    </div>
+</div>
+{% endblock %}

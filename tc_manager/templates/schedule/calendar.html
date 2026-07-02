@@ -1,0 +1,1162 @@
+{#
+================================================================================
+  일정 캘린더 화면 (calendar.html)
+================================================================================
+  routes/schedule.py 의 calendar_view() 가 이 템플릿을 그립니다.
+  tc_manager 의 base.html 을 상속(extends)하여 공통 레이아웃 안에 들어갑니다.
+
+  [화면 구성 - 위에서 아래 순서]
+    1) 상단: 연/월 이동 버튼, '오늘' 버튼, 범례(파랑=IT / 노랑=휴가 / 초록=기타)
+    2) 왼쪽: 월간 캘린더 (일정이 가로 막대로 표시. 막대를 클릭하면 수정 창)
+       오른쪽: 등록 폼 (탭으로 IT / 휴가 / 기타 전환)
+    3) 하단: 리스트 (탭별 표 + 체크박스 일괄삭제, 행마다 수정✏️/삭제🗑️)
+    4) 맨 끝(숨김): 수정용 모달 창, 개별삭제용 숨은 폼
+
+  [막대 위치 계산 방식]
+    grid-column 으로 '몇 번째 칸부터 몇 칸'을 지정해 가로로 늘림.
+    예) grid-column: 2 / 5  → 2번째 칸부터 4번째 칸까지(3칸) 차지.
+    세로 위치(겹침 방지)는 schedule.py 가 계산한 lane(줄) 값을 grid-row 로 사용.
+
+  [시간 입력 방식]
+    · 휴가  : 드롭다운(<select>)으로 8~19시 정시 선택
+    · 기타  : 텍스트 입력(09:00 형태). '하루종일' 체크 시 시간칸 숨김
+  ※ 자바스크립트는 파일 맨 아래 <script> 안에 기능별로 주석과 함께 모아둠.
+================================================================================
+#}
+{% extends "base.html" %}
+{% block title %}일정 캘린더{% endblock %}
+{% block page_title %}📅 일정 캘린더{% endblock %}
+
+{% block content %}
+<style>
+/* ── 캘린더 헤더 ── */
+.cal-top {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+}
+.cal-top h2 { font-size: 20px; font-weight: 700; color: var(--gray-dark); }
+.cal-nav { display: flex; gap: 6px; }
+.cal-nav a {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--white); border: 1px solid var(--border);
+    color: var(--gray-dark); text-decoration: none; font-size: 14px;
+    transition: background .15s;
+}
+.cal-nav a:hover { background: var(--blue-pale); }
+.btn-today {
+    padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    background: var(--blue); color: #fff; border: none; cursor: pointer;
+    text-decoration: none;
+}
+.legend { display: flex; gap: 14px; margin-left: auto; align-items: center; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray-mid); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot-it  { background: #1428A0; }
+.dot-vac { background: #FF9F0A; }
+.dot-etc { background: #639922; }
+
+/* ── 캘린더 그리드 ── */
+.calendar-wrap {
+    background: var(--white); border-radius: 14px;
+    border: 1px solid var(--border); overflow: hidden;
+}
+.cal-month-bar {
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    font-size: 15px; font-weight: 700;
+    color: var(--blue); padding: 9px 0; background: var(--blue-pale);
+    border-bottom: 1px solid var(--border);
+}
+.cal-month-bar a {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 7px;
+    background: var(--white); border: 1px solid var(--border);
+    color: var(--blue); text-decoration: none; font-size: 15px;
+    transition: background .15s;
+}
+.cal-month-bar a:hover { background: #fff; opacity: .8; }
+.cal-month-bar .month-label { min-width: 110px; text-align: center; }
+.cal-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    background: var(--blue); padding: 9px 0;
+}
+.cal-weekdays span {
+    text-align: center; font-size: 12px; font-weight: 600;
+    color: rgba(255,255,255,.8);
+}
+.cal-weekdays span:first-child { color: #ff9b9b; }
+.cal-weekdays span:last-child  { color: #9fd3f5; }
+
+/* ── 주(week) 단위 막대 레이아웃 ── */
+.cal-week { position: relative; }
+.cal-week:not(:last-child) { border-bottom: 1px solid var(--border); }
+
+/* 배경 셀 (날짜 칸) */
+.cal-week-bg { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-cell {
+    /* 날짜줄(26px) + 막대 레인들(레인당 20px) + 여유, 최소 88px 보장 */
+    min-height: max(88px, calc(28px + var(--lanes, 0) * 20px + 10px));
+    padding: 5px;
+    border-right: 1px solid var(--border);
+}
+.cal-cell:nth-child(7n) { border-right: none; }
+.cal-cell.other-month { background: #fafafa; }
+.cal-cell.other-month .cal-day { color: #ccc; }
+.cal-cell.is-today { background: #EEF1FB; }
+.cal-cell.is-today .cal-day {
+    background: var(--blue); color: #fff;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px;
+}
+.cal-cell:nth-child(7n+1) .cal-day { color: #ff3b30; }
+.cal-cell:nth-child(7n)   .cal-day { color: #0a84ff; }
+.cal-day { font-size: 13px; font-weight: 500; }
+.cal-more { font-size: 10px; color: var(--gray-mid); margin-top: 2px; }
+
+/* 막대 오버레이 (날짜줄 아래) */
+.cal-week-bars {
+    position: absolute; top: 26px; left: 0; right: 0; bottom: 2px;
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: 18px; row-gap: 2px;
+    pointer-events: none;
+}
+.cal-bar {
+    height: 18px; margin: 0 3px;
+    font-size: 10px; font-weight: 600; line-height: 18px;
+    padding: 0 6px; border-radius: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: auto; cursor: default;
+}
+.cal-bar small { font-weight: 400; opacity: .8; }
+/* 종류별 색 */
+.bar-it  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }
+.bar-vac { background: #FFF3E0; color: #E65100; border-left: 3px solid #FF9F0A; }
+.bar-etc { background: #EAF3DE; color: #3B6D11; border-left: 3px solid #639922; }
+/* 주 경계로 잘린 막대: 잘린 쪽 모서리 각지게 + 좌측 잘리면 컬러바 제거 */
+.cal-bar.no-left  { border-top-left-radius: 0; border-bottom-left-radius: 0;
+                    border-left: none; padding-left: 6px; }
+.cal-bar.no-right { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+
+/* ── 등록 폼 (오른쪽 사이드) ── */
+/* 캘린더 + 폼 가로 레이아웃 */
+.cal-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 18px;
+    align-items: start;
+    transition: grid-template-columns .28s ease, gap .28s ease;
+}
+/* 왼쪽 컬럼: 캘린더 + 리스트 세로 스택 */
+.cal-left-col { min-width: 0; }
+.list-section { margin: 0; }
+/* 접힘: 폼이 오른쪽으로 슬라이드되며 캘린더가 넓어짐 */
+.cal-layout.collapsed {
+    grid-template-columns: 1fr 0px;
+    gap: 0;
+}
+.side-form {
+    position: sticky; top: 70px;
+    transition: opacity .2s ease;
+    overflow: visible;   /* base.html .card의 overflow:hidden 덮어쓰기 (드롭다운 보이게) */
+}
+/* 접힐 때만 내용 잘리게 (평소엔 드롭다운이 넘쳐도 보이게) */
+.cal-layout.collapsed .side-form { opacity: 0; pointer-events: none; overflow: hidden; }
+
+.side-form-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; cursor: pointer; user-select: none;
+    font-size: 14px; font-weight: 700; color: var(--gray-dark);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.side-form-header:hover { background: var(--gray-light); }
+.side-form-chevron { font-size: 14px; color: var(--gray-mid); }
+
+/* 상단 '일정 등록' 토글 버튼 */
+.btn-toggle-form {
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    background: var(--blue); color: #fff; border: none; cursor: pointer;
+    white-space: nowrap; transition: opacity .15s;
+}
+.btn-toggle-form:hover { opacity: .85; }
+.btn-toggle-form.hidden { display: none; }
+.form-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 14px; }
+.form-tab {
+    flex: 1; padding: 9px 0; font-size: 13px; font-weight: 600;
+    border: none; background: none; cursor: pointer;
+    color: var(--gray-mid); border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+}
+.form-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.form-pane { display: none; }
+.form-pane.active { display: block; }
+
+/* ── 하단 리스트 탭 ── */
+.list-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); }
+.list-tab {
+    padding: 10px 18px; font-size: 14px; font-weight: 600;
+    border: none; background: none; cursor: pointer;
+    color: var(--gray-mid); border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+}
+.list-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.list-pane { display: none; }
+.list-pane.active { display: block; }
+
+.badge-weekly   { background: #EEF1FB; color: #1428A0; }
+.badge-biweekly { background: #F3E5F5; color: #6A1B9A; }
+/* 휴가 종류별 배지 (리스트) */
+.badge-full     { background: #E8F5E9; color: #2E7D32; }  /* 연차 - 초록 */
+.badge-half     { background: #E3F2FD; color: #1565C0; }  /* 반차 - 파랑 */
+.badge-quarter  { background: #FFF3E0; color: #E65100; }  /* 반반차 - 주황 */
+
+.empty-state2 { padding: 36px; text-align: center; color: var(--gray-mid); font-size: 13px; }
+.side-form #form-body { overflow: visible; }
+</style>
+
+<!-- 헤더 -->
+<div class="cal-top">
+    <h2>{{ year }}년 {{ month }}월</h2>
+    <div class="cal-nav">
+        <a href="{{ url_for('schedule.calendar_view', year=year, month=month-1) }}">‹</a>
+        <a href="{{ url_for('schedule.calendar_view', year=year, month=month+1) }}">›</a>
+    </div>
+    <a href="{{ url_for('schedule.calendar_view') }}" class="btn-today">오늘</a>
+    <div class="legend">
+        <div class="legend-item"><span class="legend-dot dot-it"></span>IT 일정</div>
+        <div class="legend-item"><span class="legend-dot dot-vac"></span>휴가</div>
+        <div class="legend-item"><span class="legend-dot dot-etc"></span>기타</div>
+    </div>
+    <button class="btn-toggle-form" id="toggle-form-btn" onclick="toggleFormPanel()">
+        ＋ 일정 등록
+    </button>
+</div>
+
+<!-- 메인: 왼쪽 캘린더 + 오른쪽 등록 폼 -->
+<div class="cal-layout" id="cal-layout">
+
+    <!-- 왼쪽 컬럼: 캘린더 + 리스트 -->
+    <div class="cal-left-col">
+    <!-- 왼쪽: 캘린더 -->
+    <div class="calendar-wrap">
+        <div class="cal-month-bar">
+            <a href="{{ url_for('schedule.calendar_view', year=year, month=month-1) }}" title="이전 달">‹</a>
+            <span class="month-label">{{ year }}년 {{ month }}월</span>
+            <a href="{{ url_for('schedule.calendar_view', year=year, month=month+1) }}" title="다음 달">›</a>
+        </div>
+        <div class="cal-weekdays">
+            <span>일</span><span>월</span><span>화</span>
+            <span>수</span><span>목</span><span>금</span><span>토</span>
+        </div>
+
+        {# 한 주(week)씩 그림. --lanes 는 그 주 막대 줄 수(높이 계산용 CSS 변수) #}
+        {% for week in cal_weeks %}
+        <div class="cal-week" style="--lanes: {{ week.n_lanes }};">
+            {# (배경) 7개 날짜 칸. 이번 달이 아니면 흐리게, 오늘이면 강조.
+               막대가 넘쳐서 안 보이는 게 있으면 그 칸에 +N 표시 #}
+            <div class="cal-week-bg">
+                {% for cell in week.days %}
+                <div class="cal-cell
+                    {% if not cell.is_current %}other-month{% endif %}
+                    {% if cell.is_today %}is-today{% endif %}">
+                    <div class="cal-day">{{ cell.date.day }}</div>
+                    {% if week.overflow_count[loop.index0] > 0 %}
+                    <div class="cal-more">+{{ week.overflow_count[loop.index0] }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {# (막대) 배경 위에 겹쳐 그리는 일정 막대들.
+               grid-column = 시작칸 ~ 끝칸+1 (칸 번호는 1부터라 +1)
+               grid-row    = lane+1 (겹치지 않게 schedule.py가 계산한 줄)
+               no-left/no-right = 일정이 이 주 밖으로 이어질 때 모서리를 각지게
+               클릭하면 openEdit()로 수정 창을 띄움 #}
+            <div class="cal-week-bars">
+                {% for bar in week.bars %}
+                <div class="cal-bar bar-{{ bar.kind }}
+                    {% if not bar.is_start %}no-left{% endif %}
+                    {% if not bar.is_end %}no-right{% endif %}"
+                    style="grid-column: {{ bar.col_start + 1 }} / {{ bar.col_end + 2 }};
+                           grid-row: {{ bar.lane + 1 }}; cursor: pointer;"
+                    title="{{ bar.title }} (클릭하여 수정)"
+                    onclick="openEdit('{{ bar.kind }}', {{ bar.id }})">
+                    {{ bar.label }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <!-- 캘린더 바로 아래 리스트 자리 -->
+    <div id="list-slot" style="margin-top:10px;"></div>
+    </div><!-- /cal-left-col -->
+
+    <!-- 오른쪽: 등록 폼 -->
+    <div class="card side-form">
+        <div class="side-form-header" onclick="toggleFormPanel()">
+            <span>＋ 일정 등록</span>
+            <span class="side-form-chevron" title="닫기">▸</span>
+        </div>
+        <div class="card-body" id="form-body">
+            <div class="form-tabs">
+                <button class="form-tab active" onclick="switchForm('it-form', this)">🔵 IT</button>
+                <button class="form-tab" onclick="switchForm('vac-form', this)">🟡 휴가</button>
+                <button class="form-tab" onclick="switchForm('etc-form', this)">🟢 기타</button>
+            </div>
+
+            <!-- IT 일정 등록 폼 -->
+            <div id="it-form" class="form-pane active">
+                <form method="POST" action="{{ url_for('schedule.add_it') }}">
+                    <div class="form-group">
+                        <label class="form-label">날짜 *</label>
+                        <input type="date" name="scheduled_date" class="form-control"
+                               value="{{ today_str }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">장소 *</label>
+                        <select name="location" class="form-control" required>
+                            {% for loc in LOCATIONS %}
+                            <option value="{{ loc }}">📍 {{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">프로젝트 *</label>
+                        <select name="project_id" class="form-control" onchange="filterBoards(this.value)" required>
+                            <option value="">-- 선택 --</option>
+                            {% for p in projects %}
+                            <option value="{{ p.id }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">장비(보드) *</label>
+                        <select name="board_id" class="form-control" id="board-select" required>
+                            <option value="">-- 선택 --</option>
+                            {% for b in boards_all %}
+                            <option value="{{ b.id }}" data-project="{{ b.project_id }}">
+                                {{ b.name }}{% if b.version %} ({{ b.version }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">반복</label>
+                        <select name="repeat_type" class="form-control" onchange="toggleRepeatEnd(this.value)">
+                            <option value="none">없음</option>
+                            <option value="weekly">매주</option>
+                            <option value="biweekly">격주</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="repeat-end-group" style="display:none;">
+                        <label class="form-label">반복 종료일</label>
+                        <input type="date" name="repeat_end" class="form-control" id="repeat-end">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Jenkins Job (선택)</label>
+                        <input type="text" name="jenkins_job" class="form-control"
+                               placeholder="예: /job/ProjectA/daily"
+                               style="font-family:monospace;font-size:12px;">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">메모</label>
+                        <input type="text" name="notes" class="form-control" placeholder="특이사항 등">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;">📅 등록</button>
+                </form>
+            </div>
+
+            <!-- 휴가 등록 폼 -->
+            <div id="vac-form" class="form-pane">
+                <form method="POST" action="{{ url_for('schedule.add_vacation') }}">
+                    <div class="form-group">
+                        <label class="form-label">팀원 *</label>
+                        <select name="vacation_user_id" class="form-control" required>
+                            <option value="">-- 선택 --</option>
+                            {% for u in users %}
+                            <option value="{{ u.id }}"
+                                {% if u.id == session.get('user_id') %}selected{% endif %}>
+                                {{ u.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">휴가 종류 *</label>
+                        <select name="leave_type" class="form-control" id="leave-type"
+                                onchange="toggleLeaveTime(this.value)" required>
+                            {% for code, full, short, has_time in LEAVE_TYPES %}
+                            <option value="{{ code }}">{{ full }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" id="vac-date-label">날짜 *</label>
+                        <input type="date" name="start_date" class="form-control"
+                               id="vac-start" value="{{ today_str }}"
+                               onchange="syncVacEnd(this.value)" required>
+                    </div>
+                    <!-- 연차일 때만: 이틀 이상 체크박스 -->
+                    <div class="form-group" id="vac-multi-group">
+                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
+                            <input type="checkbox" id="vac-multi"
+                                   onchange="toggleVacMulti(this.checked)" style="width:16px;height:16px;">
+                            이틀 이상 연차
+                        </label>
+                    </div>
+                    <input type="hidden" name="vac_multi" id="vac-multi-flag" value="0">
+                    <!-- 이틀 이상 체크 시에만 종료일 -->
+                    <div class="form-group" id="vac-end-group" style="display:none;">
+                        <label class="form-label">종료일 *</label>
+                        <input type="date" name="end_date" class="form-control"
+                               id="vac-end" value="{{ today_str }}">
+                    </div>
+                    <!-- 반차/반반차일 때만 시간 -->
+                    <div id="vac-time-group" style="display:none;background:#EEF1FB;border-radius:10px;padding:10px;margin-bottom:12px;">
+                        <div style="display:flex;gap:8px;align-items:flex-end;">
+                            <div style="flex:1;">
+                                <label class="form-label" style="font-size:11px;">🕐 시작</label>
+                                <select name="start_time" id="vac-stime" class="form-control">
+                                    {% for h in range(8, 20) %}
+                                    <option value="{{ '%02d:00'|format(h) }}"
+                                        {% if h == 9 %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <span style="padding-bottom:8px;color:#888;">~</span>
+                            <div style="flex:1;">
+                                <label class="form-label" style="font-size:11px;">🕐 종료</label>
+                                <select name="end_time" id="vac-etime" class="form-control">
+                                    {% for h in range(8, 20) %}
+                                    <option value="{{ '%02d:00'|format(h) }}"
+                                        {% if h == 13 %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;">🌴 등록</button>
+                </form>
+            </div>
+
+            <!-- 기타 일정 등록 폼 (회의/세미나 등) -->
+            <div id="etc-form" class="form-pane">
+                <form method="POST" action="{{ url_for('schedule.add_etc') }}">
+                    <div class="form-group">
+                        <label class="form-label">제목 *</label>
+                        <input type="text" name="title" class="form-control"
+                               placeholder="예: 주간 팀 회의, OO 세미나" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" id="etc-date-label">날짜 *</label>
+                        <input type="date" name="event_date" class="form-control"
+                               id="etc-start" value="{{ today_str }}"
+                               onchange="syncEtcEnd(this.value)" required>
+                    </div>
+                    <!-- 이틀 이상 체크박스 -->
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
+                            <input type="checkbox" id="etc-multi"
+                                   onchange="toggleEtcMulti(this.checked)" style="width:16px;height:16px;">
+                            이틀 이상
+                        </label>
+                    </div>
+                    <input type="hidden" name="etc_multi" id="etc-multi-flag" value="0">
+                    <!-- 이틀 이상 체크 시에만 종료일 -->
+                    <div class="form-group" id="etc-end-group" style="display:none;">
+                        <label class="form-label">종료일 *</label>
+                        <input type="date" name="etc_end_date" class="form-control"
+                               id="etc-end" value="{{ today_str }}">
+                    </div>
+                    <!-- 하루(단일)일 때만: 시간 + 하루종일 -->
+                    <div id="etc-single-options">
+                        <div class="form-group" id="etc-time-group">
+                            <label class="form-label">시간</label>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_start_time" class="form-control time-input"
+                                       id="etc-stime" value="09:00" style="flex:1;">
+                                <span style="color:#888;">~</span>
+                                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_end_time" class="form-control time-input"
+                                       id="etc-etime" value="10:00" style="flex:1;">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
+                                <input type="checkbox" name="all_day" id="etc-allday"
+                                       onchange="toggleAllDay(this.checked)" style="width:16px;height:16px;">
+                                하루종일
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">장소</label>
+                        <input type="text" name="etc_location" class="form-control"
+                               placeholder="예: 대회의실, 온라인">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;">🟢 등록</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 하단 리스트 (JS가 왼쪽 컬럼 안으로 이동) -->
+<div class="card list-section" id="list-section" style="visibility:hidden;">
+    <div class="card-body">
+        <!-- 플래시 메시지 자리 (base.html의 메시지를 JS가 여기로 이동) -->
+        <div id="flash-slot"></div>
+        <div class="list-tabs">
+            <button class="list-tab active" id="tab-btn-it" onclick="switchList('it-list', this)">
+                🔵 IT 일정 ({{ it_list|length }})
+            </button>
+            <button class="list-tab" id="tab-btn-vac" onclick="switchList('vac-list', this)">
+                🟡 휴가 ({{ vacation_list|length }})
+            </button>
+            <button class="list-tab" id="tab-btn-etc" onclick="switchList('etc-list', this)">
+                🟢 기타 ({{ etc_list|length }})
+            </button>
+        </div>
+
+        <!-- IT 일정 리스트 -->
+        <div id="it-list" class="list-pane active">
+            {% if it_list %}
+            <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='it') }}"
+                  id="it-bulk-form" onsubmit="return confirmBulk('it')">
+            <input type="hidden" name="year"  value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ 선택 삭제</button>
+            </div>
+            <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="text-align:center;width:34px;">
+                            <input type="checkbox" onclick="toggleAll('it', this.checked)">
+                        </th>
+                        <th>날짜</th><th>장소</th><th>프로젝트</th><th>장비</th>
+                        <th>반복</th><th>상태</th><th>메모</th>
+                        <th style="text-align:center;">수정/삭제</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for ev in it_list %}
+                <tr {% if ev.scheduled_date == today_str %}style="background:#EEF1FB;"{% endif %}>
+                    <td style="text-align:center;">
+                        <input type="checkbox" name="ids" value="{{ ev.id }}" class="row-chk-it">
+                    </td>
+                    <td style="white-space:nowrap;font-weight:600;">{{ ev.scheduled_date }}</td>
+                    <td>
+                        <span style="background:#F2F2F7;padding:2px 8px;border-radius:6px;font-size:12px;">
+                            📍 {{ ev.location or '-' }}
+                        </span>
+                    </td>
+                    <td style="font-weight:600;">{{ ev.project_name or '-' }}</td>
+                    <td class="text-muted">{{ ev.board_name or '-' }}</td>
+                    <td>
+                        {% if ev.repeat_type and ev.repeat_type != 'none' %}
+                        <span class="badge badge-{{ 'weekly' if ev.repeat_type == 'weekly' else 'biweekly' }}">
+                            {{ '매주' if ev.repeat_type == 'weekly' else '격주' }}
+                        </span>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>
+                        <select onchange="updateStatus({{ ev.id }}, this.value)"
+                            style="padding:3px 6px;border-radius:6px;border:1px solid var(--border);font-size:12px;">
+                            <option value="pending"  {% if ev.status=='pending'  %}selected{% endif %}>예정</option>
+                            <option value="running"  {% if ev.status=='running'  %}selected{% endif %}>진행중</option>
+                            <option value="done"     {% if ev.status=='done'     %}selected{% endif %}>완료</option>
+                            <option value="failed"   {% if ev.status=='failed'   %}selected{% endif %}>실패</option>
+                        </select>
+                    </td>
+                    <td class="text-muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        {{ ev.notes or '-' }}
+                    </td>
+                    <td style="text-align:center;white-space:nowrap;">
+                        <button type="button" class="btn btn-secondary btn-sm"
+                                onclick="openEdit('it', {{ ev.id }})">✏️</button>
+                        <button type="button" class="btn btn-danger btn-sm"
+                                onclick="delOne('it', {{ ev.id }})">🗑️</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            </form>
+            {% else %}
+            <div class="empty-state2">이번 달 IT 일정이 없습니다.</div>
+            {% endif %}
+        </div>
+
+        <!-- 휴가 리스트 -->
+        <div id="vac-list" class="list-pane">
+            {% if vacation_list %}
+            <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='vac') }}"
+                  id="vac-bulk-form" onsubmit="return confirmBulk('vac')">
+            <input type="hidden" name="year"  value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ 선택 삭제</button>
+            </div>
+            <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="text-align:center;width:34px;">
+                            <input type="checkbox" onclick="toggleAll('vac', this.checked)">
+                        </th>
+                        <th>이름</th><th>종류</th><th>날짜</th>
+                        <th style="text-align:center;">수정/삭제</th></tr>
+                </thead>
+                <tbody>
+                {% for v in vacation_list %}
+                <tr>
+                    <td style="text-align:center;">
+                        {% if v.user_id == session.get('user_id') or session.get('role') == 'admin' %}
+                        <input type="checkbox" name="ids" value="{{ v.id }}" class="row-chk-vac">
+                        {% endif %}
+                    </td>
+                    <td style="font-weight:600;">{{ v.user_name }}</td>
+                    <td>
+                        <span class="badge badge-{{ v.leave_type or 'full' }}">
+                            {{ v.type_short }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if v.start_date == v.end_date %}
+                        {{ v.start_date }}{% if v.time_range %} <span class="text-muted">{{ v.time_range }}</span>{% endif %}
+                        {% else %}
+                        {{ v.start_date }} ~ {{ v.end_date }}
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;white-space:nowrap;">
+                        {% if v.user_id == session.get('user_id') or session.get('role') == 'admin' %}
+                        <button type="button" class="btn btn-secondary btn-sm"
+                                onclick="openEdit('vac', {{ v.id }})">✏️</button>
+                        <button type="button" class="btn btn-danger btn-sm"
+                                onclick="delOne('vac', {{ v.id }})">🗑️</button>
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            </form>
+            {% else %}
+            <div class="empty-state2">이번 달 휴가 일정이 없습니다.</div>
+            {% endif %}
+        </div>
+
+        <!-- 기타 일정 리스트 -->
+        <div id="etc-list" class="list-pane">
+            {% if etc_list %}
+            <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='etc') }}"
+                  id="etc-bulk-form" onsubmit="return confirmBulk('etc')">
+            <input type="hidden" name="year"  value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ 선택 삭제</button>
+            </div>
+            <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="text-align:center;width:34px;">
+                            <input type="checkbox" onclick="toggleAll('etc', this.checked)">
+                        </th>
+                        <th>날짜</th><th>제목</th><th>시간</th><th>장소</th><th>등록자</th>
+                        <th style="text-align:center;">수정/삭제</th></tr>
+                </thead>
+                <tbody>
+                {% for e in etc_list %}
+                <tr {% if e.event_date == today_str %}style="background:#EEF1FB;"{% endif %}>
+                    <td style="text-align:center;">
+                        <input type="checkbox" name="ids" value="{{ e.id }}" class="row-chk-etc">
+                    </td>
+                    <td style="white-space:nowrap;font-weight:600;">
+                        {% if e.end_date and e.end_date != e.event_date %}
+                        {{ e.event_date }} ~ {{ e.end_date }}
+                        {% else %}
+                        {{ e.event_date }}
+                        {% endif %}
+                    </td>
+                    <td style="font-weight:600;">{{ e.title }}</td>
+                    <td>
+                        {% if e.all_day %}<span class="badge badge-full">하루종일</span>
+                        {% elif e.start_time %}{{ e.start_time }} ~ {{ e.end_time }}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="text-muted">{{ e.location or '-' }}</td>
+                    <td class="text-muted">{{ e.creator_name or '-' }}</td>
+                    <td style="text-align:center;white-space:nowrap;">
+                        <button type="button" class="btn btn-secondary btn-sm"
+                                onclick="openEdit('etc', {{ e.id }})">✏️</button>
+                        <button type="button" class="btn btn-danger btn-sm"
+                                onclick="delOne('etc', {{ e.id }})">🗑️</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            </form>
+            {% else %}
+            <div class="empty-state2">이번 달 기타 일정이 없습니다.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 개별 삭제용 숨은 폼 (JS로 action 설정) -->
+<form id="single-del-form" method="POST" style="display:none;">
+    <input type="hidden" name="year"  value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+</form>
+
+<!-- ══ 수정 모달 ══ -->
+<div id="edit-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:24px;width:380px;max-width:92vw;max-height:88vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.2);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 id="edit-title" style="font-size:16px;font-weight:700;">일정 수정</h3>
+      <button type="button" onclick="closeEdit()"
+              style="background:none;border:none;font-size:20px;cursor:pointer;color:#888;">×</button>
+    </div>
+
+    <!-- IT 수정 폼 -->
+    <form id="edit-it-form" method="POST" style="display:none;">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <div class="form-group"><label class="form-label">날짜 *</label>
+            <input type="date" name="scheduled_date" id="eit-date" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">장소</label>
+            <select name="location" id="eit-loc" class="form-control">
+                {% for loc in LOCATIONS %}<option value="{{ loc }}">{{ loc }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label">프로젝트 *</label>
+            <select name="project_id" id="eit-project" class="form-control" required>
+                <option value="">-- 선택 --</option>
+                {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label">장비(보드) *</label>
+            <select name="board_id" id="eit-board" class="form-control" required>
+                <option value="">-- 선택 --</option>
+                {% for b in boards_all %}<option value="{{ b.id }}" data-project="{{ b.project_id }}">{{ b.name }}{% if b.version %} ({{ b.version }}){% endif %}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label">담당자</label>
+            <select name="assignee_id" id="eit-assignee" class="form-control">
+                <option value="">-- 선택 --</option>
+                {% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label">반복</label>
+            <select name="repeat_type" id="eit-repeat" class="form-control"
+                    onchange="document.getElementById('eit-repeat-end-group').style.display = this.value!='none'?'block':'none'">
+                <option value="none">없음</option><option value="weekly">매주</option><option value="biweekly">격주</option>
+            </select></div>
+        <div class="form-group" id="eit-repeat-end-group" style="display:none;">
+            <label class="form-label">반복 종료일</label>
+            <input type="date" name="repeat_end" id="eit-repeat-end" class="form-control"></div>
+        <div class="form-group"><label class="form-label">메모</label>
+            <input type="text" name="notes" id="eit-notes" class="form-control"></div>
+        <div class="form-group"><label class="form-label">Jenkins Job</label>
+            <input type="text" name="jenkins_job" id="eit-jenkins" class="form-control"
+                   style="font-family:monospace;font-size:12px;"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">💾 저장</button>
+    </form>
+
+    <!-- 휴가 수정 폼 -->
+    <form id="edit-vac-form" method="POST" style="display:none;">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <div class="form-group"><label class="form-label">팀원 *</label>
+            <select name="vacation_user_id" id="evac-user" class="form-control" required>
+                {% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label">휴가 종류 *</label>
+            <select name="leave_type" id="evac-type" class="form-control" onchange="evacToggle(this.value)" required>
+                {% for code, full, short, has_time in LEAVE_TYPES %}<option value="{{ code }}">{{ full }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label class="form-label" id="evac-date-label">시작일 *</label>
+            <input type="date" name="start_date" id="evac-start" class="form-control" required></div>
+        <div class="form-group" id="evac-end-group"><label class="form-label">종료일</label>
+            <input type="date" name="end_date" id="evac-end" class="form-control"></div>
+        <div id="evac-time-group" style="display:none;background:#EEF1FB;border-radius:10px;padding:10px;margin-bottom:12px;">
+            <div style="display:flex;gap:8px;align-items:flex-end;">
+                <div style="flex:1;">
+                    <label class="form-label" style="font-size:11px;">🕐 시작</label>
+                    <select name="start_time" id="evac-stime" class="form-control">
+                        {% for h in range(8, 20) %}
+                        <option value="{{ '%02d:00'|format(h) }}">{{ '%02d:00'|format(h) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <span style="padding-bottom:8px;color:#888;">~</span>
+                <div style="flex:1;">
+                    <label class="form-label" style="font-size:11px;">🕐 종료</label>
+                    <select name="end_time" id="evac-etime" class="form-control">
+                        {% for h in range(8, 20) %}
+                        <option value="{{ '%02d:00'|format(h) }}">{{ '%02d:00'|format(h) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">💾 저장</button>
+    </form>
+
+    <!-- 기타 수정 폼 -->
+    <form id="edit-etc-form" method="POST" style="display:none;">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <div class="form-group"><label class="form-label">제목 *</label>
+            <input type="text" name="title" id="eetc-title" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">시작일 *</label>
+            <input type="date" name="event_date" id="eetc-start" class="form-control" required></div>
+        <div class="form-group"><label class="form-label">종료일 *</label>
+            <input type="date" name="etc_end_date" id="eetc-end" class="form-control" required></div>
+        <div class="form-group" id="eetc-time-group"><label class="form-label">시간</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_start_time" id="eetc-stime" class="form-control time-input" style="flex:1;">
+                <span style="color:#888;">~</span>
+                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_end_time" id="eetc-etime" class="form-control time-input" style="flex:1;">
+            </div></div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" name="all_day" id="eetc-allday"
+                       onchange="document.getElementById('eetc-time-group').style.display=this.checked?'none':'block'"
+                       style="width:16px;height:16px;">
+                하루종일
+            </label></div>
+        <div class="form-group"><label class="form-label">장소</label>
+            <input type="text" name="etc_location" id="eetc-loc" class="form-control"></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">💾 저장</button>
+    </form>
+  </div>
+</div>
+
+<script>
+// ================================================================
+//  자바스크립트 - 화면 동작 모음
+//  (아래 기능들이 순서대로 정의되어 있습니다)
+//    · 시간 입력 자동 보정        : '9' → '09:00' 처럼 형식 정리
+//    · 일괄/개별 삭제             : 체크박스 선택 삭제, 행별 삭제
+//    · 수정 모달(openEdit 등)     : 막대/✏️ 클릭 시 기존 값 불러와 폼에 채움
+//    · 등록 폼 탭/접기, 리스트 탭 : IT·휴가·기타 전환
+//    · 휴가/기타 폼 동작          : 종류·이틀이상·하루종일에 따라 칸 표시 전환
+// ================================================================
+
+// ── 시간 입력 보정: '9'→'09:00', '930'→'09:30' (타이핑만, 끝나면 형식 정리) ──
+document.addEventListener('blur', function(e) {
+    const el = e.target;
+    if (!el.matches || !el.matches('input.time-input')) return;
+    let v = (el.value || '').trim();
+    if (!v) return;
+    const digits = v.replace(/\D/g, '');
+    if (/^\d{1,2}$/.test(v)) {                 // '9' → 09:00
+        v = ('0' + v).slice(-2) + ':00';
+    } else if (/^\d{3,4}$/.test(digits)) {     // '930'/'0930' → 09:30
+        const d4 = digits.padStart(4, '0');
+        v = d4.slice(0, 2) + ':' + d4.slice(2);
+    } else {
+        const m = v.match(/^(\d{1,2}):(\d{1,2})$/);
+        if (m) v = m[1].padStart(2, '0') + ':' + m[2].padStart(2, '0');
+    }
+    el.value = v;
+}, true);
+
+// ══ 일괄/개별 삭제 ══
+const DEL_ACTIONS = {
+    it:  "{{ url_for('schedule.delete_it', schedule_id=0) }}".slice(0, -1),
+    vac: "{{ url_for('schedule.delete_vacation', vacation_id=0) }}".slice(0, -1),
+    etc: "{{ url_for('schedule.delete_etc', event_id=0) }}".slice(0, -1),
+};
+// 헤더 체크박스로 전체 선택/해제
+function toggleAll(kind, checked) {
+    document.querySelectorAll('.row-chk-' + kind).forEach(c => c.checked = checked);
+}
+// 일괄 삭제 제출 전 확인
+function confirmBulk(kind) {
+    const n = document.querySelectorAll('.row-chk-' + kind + ':checked').length;
+    if (n === 0) { alert('삭제할 항목을 선택해주세요.'); return false; }
+    return confirm(n + '건을 삭제할까요?');
+}
+// 개별 삭제 (숨은 폼으로 제출)
+function delOne(kind, id) {
+    if (!confirm('삭제할까요?')) return;
+    const f = document.getElementById('single-del-form');
+    f.action = DEL_ACTIONS[kind] + id;
+    f.submit();
+}
+
+// ══ 수정 모달 ══
+const EDIT_ACTIONS = {
+    it:  "{{ url_for('schedule.edit_it', schedule_id=0) }}".slice(0, -1),
+    vac: "{{ url_for('schedule.edit_vacation', vacation_id=0) }}".slice(0, -1),
+    etc: "{{ url_for('schedule.edit_etc', event_id=0) }}".slice(0, -1),
+};
+function openEdit(kind, id) {
+    // 종류별 폼 표시 전환
+    ['it','vac','etc'].forEach(k => {
+        document.getElementById('edit-'+k+'-form').style.display = (k===kind)?'block':'none';
+    });
+    const titleMap = {it:'🔵 IT 일정 수정', vac:'🟡 휴가 수정', etc:'🟢 기타 일정 수정'};
+    document.getElementById('edit-title').textContent = titleMap[kind];
+
+    // 데이터 불러와서 폼 채우기
+    fetch(`/schedule/item/${kind}/${id}`)
+        .then(r => r.json())
+        .then(d => {
+            if (!d.ok) { alert('일정을 불러올 수 없어요.'); return; }
+            const it = d.item;
+            if (kind === 'it')  fillIt(it, id);
+            if (kind === 'vac') fillVac(it, id);
+            if (kind === 'etc') fillEtc(it, id);
+            document.getElementById('edit-overlay').style.display = 'flex';
+        })
+        .catch(() => alert('불러오기 실패'));
+}
+function closeEdit() {
+    document.getElementById('edit-overlay').style.display = 'none';
+}
+function fillIt(it, id) {
+    const f = document.getElementById('edit-it-form');
+    f.action = EDIT_ACTIONS.it + id;
+    f.scheduled_date.value = it.scheduled_date || '';
+    f.location.value       = it.location || 'DSR';
+    f.project_id.value     = it.project_id || '';
+    f.board_id.value       = it.board_id || '';
+    f.assignee_id.value    = it.assignee_id || '';
+    f.repeat_type.value    = it.repeat_type || 'none';
+    f.repeat_end.value     = it.repeat_end || '';
+    f.notes.value          = it.notes || '';
+    f.jenkins_job.value    = it.jenkins_job || '';
+    document.getElementById('eit-repeat-end-group').style.display =
+        (it.repeat_type && it.repeat_type !== 'none') ? 'block' : 'none';
+}
+function fillVac(v, id) {
+    const f = document.getElementById('edit-vac-form');
+    f.action = EDIT_ACTIONS.vac + id;
+    f.vacation_user_id.value = v.user_id || '';
+    f.leave_type.value       = v.leave_type || 'full';
+    f.start_date.value       = v.start_date || '';
+    f.end_date.value         = v.end_date || '';
+    // 시간 드롭다운 (반차류일 때만 의미 있음)
+    f.start_time.value       = (v.start_time || '09:00').slice(0, 2) + ':00';
+    f.end_time.value         = (v.end_time   || '13:00').slice(0, 2) + ':00';
+    evacToggle(v.leave_type || 'full');
+}
+function evacToggle(val) {
+    const endG  = document.getElementById('evac-end-group');
+    const timeG = document.getElementById('evac-time-group');
+    const lbl   = document.getElementById('evac-date-label');
+    if (val === 'full') {
+        endG.style.display = 'block'; timeG.style.display = 'none'; lbl.textContent = '시작일 *';
+    } else {
+        endG.style.display = 'none'; timeG.style.display = 'block'; lbl.textContent = '날짜 *';
+    }
+}
+function fillEtc(e, id) {
+    const f = document.getElementById('edit-etc-form');
+    f.action = EDIT_ACTIONS.etc + id;
+    f.title.value         = e.title || '';
+    f.event_date.value    = e.event_date || '';
+    f.etc_end_date.value  = e.end_date || e.event_date || '';
+    f.etc_start_time.value = e.start_time || '';
+    f.etc_end_time.value   = e.end_time || '';
+    f.etc_location.value   = e.location || '';
+    const allday = !!e.all_day;
+    f.all_day.checked = allday;
+    document.getElementById('eetc-time-group').style.display = allday ? 'none' : 'block';
+}
+// 오버레이 바깥 클릭 시 닫기
+document.addEventListener('click', function(e) {
+    const ov = document.getElementById('edit-overlay');
+    if (e.target === ov) closeEdit();
+});
+
+// ── 등록 폼 패널 접기/펴기 (가로 슬라이드) ──
+function toggleFormPanel() {
+    const layout = document.getElementById('cal-layout');
+    const btn    = document.getElementById('toggle-form-btn');
+    layout.classList.toggle('collapsed');
+    // 접혔으면 상단 '＋ 일정 등록' 버튼 표시, 펴졌으면 숨김
+    btn.classList.toggle('hidden', !layout.classList.contains('collapsed'));
+}
+// 처음엔 폼이 열려 있으므로 상단 버튼 숨김
+document.addEventListener('DOMContentLoaded', function() {
+    const btn = document.getElementById('toggle-form-btn');
+    if (btn) btn.classList.add('hidden');
+    // 리스트를 캘린더 바로 아래(왼쪽 컬럼 슬롯)로 이동
+    try {
+        const slot = document.getElementById('list-slot');
+        const list = document.getElementById('list-section');
+        if (slot && list) {
+            slot.appendChild(list);
+        }
+        if (list) list.style.visibility = 'visible';
+    } catch (e) {
+        const list = document.getElementById('list-section');
+        if (list) list.style.visibility = 'visible';
+    }
+    // 삭제 후 돌아왔을 때 해당 리스트 탭 유지 (?tab=vac/etc/it)
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        const btnMap = { it: 'tab-btn-it', vac: 'tab-btn-vac', etc: 'tab-btn-etc' };
+        if (tab && btnMap[tab]) {
+            const b = document.getElementById(btnMap[tab]);
+            if (b) b.click();
+        }
+    } catch (e) {}
+    // 상단 플래시 메시지를 리스트 위로 이동
+    try {
+        const flash = document.querySelector('.content > .flash-messages');
+        const slot  = document.getElementById('flash-slot');
+        if (flash && slot) {
+            slot.appendChild(flash);
+            flash.style.marginTop = '0';
+            // 4초 후 부드럽게 사라짐
+            setTimeout(function() {
+                flash.style.transition = 'opacity .5s';
+                flash.style.opacity = '0';
+                setTimeout(function(){ flash.remove(); }, 500);
+            }, 4000);
+        }
+    } catch (e) {}
+});
+
+function syncEtcEnd(val) {
+    const end   = document.getElementById('etc-end');
+    const multi = document.getElementById('etc-multi');
+    if (!end) return;
+    if (multi && !multi.checked) {
+        // 단일 모드: 종료일을 항상 시작일과 동일하게
+        end.value = val;
+    } else if (!end.value || end.value < val) {
+        end.value = val;
+    }
+}
+// ── 기타: 하루종일 체크 시 시간칸 숨김 ──
+function toggleAllDay(checked) {
+    const grp = document.getElementById('etc-time-group');
+    if (grp) grp.style.display = checked ? 'none' : 'block';
+}
+// ── 기타: 이틀 이상 체크 시 종료일 표시 + 하루종일/시간 숨김 ──
+function toggleEtcMulti(checked) {
+    const endGroup    = document.getElementById('etc-end-group');
+    const singleOpts  = document.getElementById('etc-single-options');
+    const dateLabel   = document.getElementById('etc-date-label');
+    const endInput    = document.getElementById('etc-end');
+    const multiFlag   = document.getElementById('etc-multi-flag');
+    if (checked) {
+        endGroup.style.display   = 'block';
+        singleOpts.style.display = 'none';   // 하루종일+시간 숨김
+        dateLabel.textContent    = '시작일 *';
+        if (endInput) endInput.value = document.getElementById('etc-start').value;
+        if (multiFlag) multiFlag.value = '1';
+    } else {
+        endGroup.style.display   = 'none';
+        singleOpts.style.display = 'block';
+        dateLabel.textContent    = '날짜 *';
+        // 단일 일정이므로 종료일을 시작일과 동일하게 리셋 (이전 값 잔재 제거)
+        if (endInput) endInput.value = document.getElementById('etc-start').value;
+        if (multiFlag) multiFlag.value = '0';
+    }
+}
+
+// ── 휴가: 종류 선택 시 (연차 ↔ 반차/반반차) ──
+function toggleLeaveTime(val) {
+    const multiGroup = document.getElementById('vac-multi-group');
+    const endGroup   = document.getElementById('vac-end-group');
+    const timeGroup  = document.getElementById('vac-time-group');
+    const dateLabel  = document.getElementById('vac-date-label');
+    const multiChk   = document.getElementById('vac-multi');
+    if (val === 'full') {
+        // 연차: 이틀이상 체크박스 표시, 시간 숨김. 종료일은 체크 상태 따름
+        multiGroup.style.display = 'block';
+        timeGroup.style.display  = 'none';
+        toggleVacMulti(multiChk.checked);
+    } else {
+        // 반차/반반차: 하루 고정, 시간 표시. 이틀이상·종료일 숨김
+        multiGroup.style.display = 'none';
+        endGroup.style.display   = 'none';
+        timeGroup.style.display  = 'block';
+        dateLabel.textContent    = '날짜 *';
+        const e = document.getElementById('vac-end');
+        if (e) e.value = document.getElementById('vac-start').value;
+        const mf = document.getElementById('vac-multi-flag');
+        if (mf) mf.value = '0';
+    }
+}
+// ── 휴가: 이틀 이상 체크 시 종료일 표시 ──
+function toggleVacMulti(checked) {
+    const endGroup  = document.getElementById('vac-end-group');
+    const dateLabel = document.getElementById('vac-date-label');
+    const endInput  = document.getElementById('vac-end');
+    const multiFlag = document.getElementById('vac-multi-flag');
+    if (checked) {
+        endGroup.style.display = 'block';
+        dateLabel.textContent  = '시작일 *';
+        if (endInput) endInput.value = document.getElementById('vac-start').value;
+        if (multiFlag) multiFlag.value = '1';
+    } else {
+        endGroup.style.display = 'none';
+        dateLabel.textContent  = '날짜 *';
+        // 단일 연차 → 종료일을 시작일과 동일하게 리셋 (이전 값 잔재 제거)
+        if (endInput) endInput.value = document.getElementById('vac-start').value;
+        if (multiFlag) multiFlag.value = '0';
+    }
+}
+// ── 휴가: 시작일 바꾸면 종료일 맞춰줌 ──
+function syncVacEnd(val) {
+    const end   = document.getElementById('vac-end');
+    const multi = document.getElementById('vac-multi');
+    if (!end) return;
+    if (multi && !multi.checked) {
+        end.value = val;   // 단일 모드: 항상 시작일과 동일
+    } else if (!end.value || end.value < val) {
+        end.value = val;
+    }
+}
+
+// 등록 폼 탭 전환
+function switchForm(id, btn) {
+    document.querySelectorAll('.form-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.form-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+}
+// 하단 리스트 탭 전환
+function switchList(id, btn) {
+    document.querySelectorAll('.list-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.list-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+}
+// 프로젝트 선택 시 장비 필터
+function filterBoards(projectId) {
+    const sel = document.getElementById('board-select');
+    for (let opt of sel.options) {
+        if (!opt.value) continue;
+        opt.style.display = (!projectId || opt.dataset.project == projectId) ? '' : 'none';
+    }
+    sel.value = '';
+}
+// 반복 종료일 표시/숨김
+function toggleRepeatEnd(val) {
+    const grp = document.getElementById('repeat-end-group');
+    grp.style.display = (val !== 'none') ? 'block' : 'none';
+    if (val === 'none') document.getElementById('repeat-end').value = '';
+}
+// 상태 변경 (AJAX)
+function updateStatus(id, status) {
+    fetch(`/schedule/it/status/${id}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status})
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) alert('상태 변경 실패');
+    });
+}
+</script>
+{% endblock %}

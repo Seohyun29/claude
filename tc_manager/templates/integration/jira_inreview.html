@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Jira In Review TC{% endblock %}
+{% block page_title %}🔵 Jira In Review TC 목록{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:14px;font-size:13px;color:#6E6E73;">
+    <a href="{{ url_for('integration.index') }}"
+       style="color:#1428A0;text-decoration:none;">🔗 연동 설정</a>
+    <span style="margin:0 8px;">›</span>
+    <span>Jira In Review TC</span>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Jira In Review 상태 TC
+            <span style="color:#6E6E73;font-weight:400;font-size:13px;">
+                {{ issues|length }}건
+            </span>
+        </h2>
+        <a href="{{ url_for('integration.jira_fetch_inreview') }}"
+           class="btn btn-secondary btn-sm">🔄 새로고침</a>
+    </div>
+
+    {% if issues %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Jira 키</th>
+                    <th>요약</th>
+                    <th>담당자</th>
+                    <th>우선순위</th>
+                    <th>업데이트</th>
+                    <th style="text-align:center;">Jira 열기</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in issues %}
+                <tr>
+                    <td>
+                        <span style="font-family:monospace;font-weight:700;
+                                     color:#0052CC;font-size:13px;">
+                            {{ issue.key }}
+                        </span>
+                    </td>
+                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;
+                               white-space:nowrap;" title="{{ issue.fields.summary }}">
+                        {{ issue.fields.summary }}
+                    </td>
+                    <td class="text-muted">
+                        {{ issue.fields.assignee.displayName if issue.fields.assignee else '미지정' }}
+                    </td>
+                    <td class="text-muted">
+                        {{ issue.fields.priority.name if issue.fields.priority else '-' }}
+                    </td>
+                    <td class="text-muted">
+                        {{ issue.fields.updated[:10] if issue.fields.updated else '-' }}
+                    </td>
+                    <td style="text-align:center;">
+                        <a href="{{ cfg.server_url }}/browse/{{ issue.key }}"
+                           target="_blank" class="btn btn-secondary btn-sm">
+                            ↗ 열기
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="icon">✅</div>
+        <p>In Review 상태의 TC가 없습니다.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
