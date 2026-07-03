@@ -1,10 +1,11 @@
 {#
-  workitems 등록 화면 — routes/it_verification.py 의 workitems_view() 가 그림
-  프로젝트별로 workitems 엑셀을 올리면 SITL 목록이 파싱되어 DB에 저장된다.
+  SITL 등록 화면 — routes/it_verification.py 의 workitems_view() 가 그림
+  프로젝트를 고르고 workitems 엑셀을 올리면, 엑셀의 SITL ID/Domain을 파싱해 DB에 저장한다.
+  엑셀 읽기는 기존 리뷰 기능과 같은 방식(xlwings→openpyxl→csv)이라 DRM 엑셀도 읽힌다.
 #}
 {% extends "base.html" %}
-{% block title %}IT 검증 - workitems 등록{% endblock %}
-{% block page_title %}🧪 IT 검증 · workitems 등록{% endblock %}
+{% block title %}IT 검증 - SITL 등록{% endblock %}
+{% block page_title %}🧪 IT 검증 · SITL 등록{% endblock %}
 
 {% block content %}
 <style>
@@ -37,21 +38,24 @@
     <!-- IT 검증 메뉴 내 탭 (등록 / 로그 저장) -->
     <div class="wi-tabs">
         <a class="wi-tab-link" href="{{ url_for('it_verification.log_view') }}">📝 로그 저장</a>
-        <a class="wi-tab-link active" href="{{ url_for('it_verification.workitems_view') }}">📂 workitems 등록</a>
+        <a class="wi-tab-link active" href="{{ url_for('it_verification.workitems_view') }}">📂 SITL 등록</a>
     </div>
 
     <!-- 업로드 폼 -->
     <div class="wi-card">
-        <div style="font-size:15px;font-weight:600;margin-bottom:2px;">📂 workitems 등록 (프로젝트별)</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:2px;">📂 workitems 등록</div>
         <div class="wi-hint">
-            프로젝트마다 workitems 엑셀을 올려두면, 로그 저장 화면에서 자동으로 SITL 목록을 불러와요.
-            같은 프로젝트명으로 다시 올리면 최신 내용으로 갱신됩니다.
+            프로젝트를 고르고 그 프로젝트의 workitems 엑셀을 올리면, 엑셀 안의
+            <b>SITL ID · Domain</b>을 읽어 SITL 목록을 만들어요.
+            같은 프로젝트로 다시 올리면 최신 내용으로 갱신됩니다.
+            <br>
+            <span style="color:#9CA3AF;">※ DRM이 걸린 엑셀도 읽혀요 (엑셀앱 방식). 안 되면 CSV로 저장해 올려도 됩니다.</span>
         </div>
         <form method="POST" action="{{ url_for('it_verification.workitems_upload') }}"
               enctype="multipart/form-data">
             <div class="wi-row">
                 <div class="wi-field">
-                    <label class="wi-label">프로젝트명 *</label>
+                    <label class="wi-label">프로젝트 *</label>
                     <select id="project-select" class="form-control" onchange="onProjectSelect(this.value)">
                         <option value="">-- 선택 --</option>
                         {% for p in project_options %}
@@ -59,9 +63,7 @@
                         {% endfor %}
                         <option value="__new__">＋ 새 프로젝트 직접 입력</option>
                     </select>
-                    <!-- 실제 전송값: 드롭다운 선택 또는 직접 입력 -->
                     <input type="hidden" name="project" id="project-value">
-                    <!-- '직접 입력' 선택 시에만 표시 -->
                     <input type="text" id="project-custom" class="form-control"
                            placeholder="새 프로젝트명 입력"
                            style="display:none;margin-top:6px;"
@@ -70,7 +72,7 @@
                 <div class="wi-field">
                     <label class="wi-label">workitems 엑셀 *</label>
                     <input type="file" name="workitems_file" class="form-control"
-                           accept=".xlsx,.xls" required>
+                           accept=".xlsx,.xls,.csv" required>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary" style="width:100%;"
@@ -79,20 +81,18 @@
     </div>
 
     <script>
-    // 드롭다운 선택 처리: 일반 선택이면 그 값, '직접 입력'이면 텍스트칸 표시
     function onProjectSelect(val) {
         const custom = document.getElementById('project-custom');
         const hidden = document.getElementById('project-value');
         if (val === '__new__') {
             custom.style.display = 'block';
             custom.focus();
-            hidden.value = custom.value;   // 이미 친 값이 있으면 반영
+            hidden.value = custom.value;
         } else {
             custom.style.display = 'none';
             hidden.value = val;
         }
     }
-    // 제출 전 프로젝트명 확인
     function checkProject() {
         if (!document.getElementById('project-value').value.trim()) {
             alert('프로젝트를 선택하거나 직접 입력해주세요.');
