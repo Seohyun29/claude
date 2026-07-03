@@ -54,12 +54,13 @@ LOG_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # 검증 도메인 5종 (workitems의 Domain 값과 매칭. 소문자로 비교)
 DOMAINS = ['misc', 'sfi', 'linux', 'android', 'baremetal linux']
 
-# 미리 정해둔 프로젝트 목록 (여기에 새 프로젝트를 추가하면 드롭다운에 나옴)
+# 미리 정해둔 프로젝트 목록 (관리자 '프로젝트 관리'의 프로젝트명과 똑같이 맞춰야
+# 보드 정보가 자동으로 연결됨. 새 프로젝트는 여기에 추가하거나 등록 시 직접 입력)
 PRESET_PROJECTS = [
-    'IDCevo_sop26v2',
-    'IDCevo_sop27v2',
-    'IDCevo_sop28v2',
-    'IDCevo_sop28v3',
+    'IDCevo26v2',
+    'IDCevo27v2',
+    'IDCevo28v2',
+    'IDCevo28v3',
 ]
 
 # 결과값
