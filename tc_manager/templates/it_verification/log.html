@@ -81,11 +81,6 @@
             {% for p in projects %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
         </select>
         <span class="iv-usc">_</span>
-        <select name="board" id="sel-board" class="iv-sel" required>
-            <option value="">보드</option>
-            {% for b in boards %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
-        </select>
-        <span class="iv-usc">_</span>
         <select name="domain" id="sel-domain" class="iv-sel" onchange="loadSitls()" required>
             <option value="">도메인</option>
             {% for d in domains %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
@@ -142,20 +137,17 @@
     <table class="iv-table">
         <thead>
             <tr><th>날짜</th><th>프로젝트</th><th>보드</th><th>도메인</th><th>SITL</th>
-                <th>결과</th><th>제목</th><th style="text-align:center;">파일</th></tr>
+                <th>결과</th><th style="text-align:center;">파일</th></tr>
         </thead>
         <tbody>
         {% for log in logs %}
         <tr>
             <td style="white-space:nowrap;">{{ log.log_date }}</td>
             <td style="font-weight:600;">{{ log.project }}</td>
-            <td>{{ log.board }}</td>
+            <td>{{ log.board or '-' }}</td>
             <td>{{ log.domain }}</td>
             <td style="font-family:monospace;">{{ log.sitl_id }}</td>
             <td><span class="res-badge res-{{ log.result }}">{{ log.result }}</span></td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6B7280;">
-                {{ log.title or '-' }}
-            </td>
             <td style="text-align:center;white-space:nowrap;">
                 <a href="{{ url_for('it_verification.log_download', log_id=log.id) }}"
                    class="btn btn-secondary btn-sm">⬇️</a>
