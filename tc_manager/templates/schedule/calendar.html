@@ -1,28 +1,3 @@
-{#
-================================================================================
-  일정 캘린더 화면 (calendar.html)
-================================================================================
-  routes/schedule.py 의 calendar_view() 가 이 템플릿을 그립니다.
-  tc_manager 의 base.html 을 상속(extends)하여 공통 레이아웃 안에 들어갑니다.
-
-  [화면 구성 - 위에서 아래 순서]
-    1) 상단: 연/월 이동 버튼, '오늘' 버튼, 범례(파랑=IT / 노랑=휴가 / 초록=기타)
-    2) 왼쪽: 월간 캘린더 (일정이 가로 막대로 표시. 막대를 클릭하면 수정 창)
-       오른쪽: 등록 폼 (탭으로 IT / 휴가 / 기타 전환)
-    3) 하단: 리스트 (탭별 표 + 체크박스 일괄삭제, 행마다 수정✏️/삭제🗑️)
-    4) 맨 끝(숨김): 수정용 모달 창, 개별삭제용 숨은 폼
-
-  [막대 위치 계산 방식]
-    grid-column 으로 '몇 번째 칸부터 몇 칸'을 지정해 가로로 늘림.
-    예) grid-column: 2 / 5  → 2번째 칸부터 4번째 칸까지(3칸) 차지.
-    세로 위치(겹침 방지)는 schedule.py 가 계산한 lane(줄) 값을 grid-row 로 사용.
-
-  [시간 입력 방식]
-    · 휴가  : 드롭다운(<select>)으로 8~19시 정시 선택
-    · 기타  : 텍스트 입력(09:00 형태). '하루종일' 체크 시 시간칸 숨김
-  ※ 자바스크립트는 파일 맨 아래 <script> 안에 기능별로 주석과 함께 모아둠.
-================================================================================
-#}
 {% extends "base.html" %}
 {% block title %}일정 캘린더{% endblock %}
 {% block page_title %}📅 일정 캘린더{% endblock %}
@@ -248,11 +223,9 @@
             <span>수</span><span>목</span><span>금</span><span>토</span>
         </div>
 
-        {# 한 주(week)씩 그림. --lanes 는 그 주 막대 줄 수(높이 계산용 CSS 변수) #}
         {% for week in cal_weeks %}
         <div class="cal-week" style="--lanes: {{ week.n_lanes }};">
-            {# (배경) 7개 날짜 칸. 이번 달이 아니면 흐리게, 오늘이면 강조.
-               막대가 넘쳐서 안 보이는 게 있으면 그 칸에 +N 표시 #}
+            <!-- 배경 날짜 셀 -->
             <div class="cal-week-bg">
                 {% for cell in week.days %}
                 <div class="cal-cell
@@ -265,11 +238,7 @@
                 </div>
                 {% endfor %}
             </div>
-            {# (막대) 배경 위에 겹쳐 그리는 일정 막대들.
-               grid-column = 시작칸 ~ 끝칸+1 (칸 번호는 1부터라 +1)
-               grid-row    = lane+1 (겹치지 않게 schedule.py가 계산한 줄)
-               no-left/no-right = 일정이 이 주 밖으로 이어질 때 모서리를 각지게
-               클릭하면 openEdit()로 수정 창을 띄움 #}
+            <!-- 막대 오버레이 -->
             <div class="cal-week-bars">
                 {% for bar in week.bars %}
                 <div class="cal-bar bar-{{ bar.kind }}
@@ -305,7 +274,8 @@
 
             <!-- IT 일정 등록 폼 -->
             <div id="it-form" class="form-pane active">
-                <form method="POST" action="{{ url_for('schedule.add_it') }}">
+                <form method="POST" action="{{ url_for('schedule.add_it') }}"
+                      id="it-add-form" onsubmit="return validateItForm();">
                     <div class="form-group">
                         <label class="form-label">날짜 *</label>
                         <input type="date" name="scheduled_date" class="form-control"
@@ -329,8 +299,8 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">장비(보드) *</label>
-                        <select name="board_id" class="form-control" id="board-select" required>
+                        <label class="form-label">장비(보드)</label>
+                        <select name="board_id" class="form-control" id="board-select">
                             <option value="">-- 선택 --</option>
                             {% for b in boards_all %}
                             <option value="{{ b.id }}" data-project="{{ b.project_id }}">
@@ -341,7 +311,8 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">반복</label>
-                        <select name="repeat_type" class="form-control" onchange="toggleRepeatEnd(this.value)">
+                        <select name="repeat_type" class="form-control" id="it-repeat"
+                                onchange="toggleRepeatEnd(this.value)">
                             <option value="none">없음</option>
                             <option value="weekly">매주</option>
                             <option value="biweekly">격주</option>
@@ -361,7 +332,11 @@
                         <label class="form-label">메모</label>
                         <input type="text" name="notes" class="form-control" placeholder="특이사항 등">
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%;">📅 등록</button>
+                    <div style="display:flex;gap:8px;">
+                        <button type="button" class="btn btn-secondary" style="flex:0 0 auto;"
+                                onclick="resetItForm()">↺ 초기화</button>
+                        <button type="submit" class="btn btn-primary" style="flex:1;">📅 등록</button>
+                    </div>
                 </form>
             </div>
 
@@ -738,8 +713,8 @@
                 <option value="">-- 선택 --</option>
                 {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
             </select></div>
-        <div class="form-group"><label class="form-label">장비(보드) *</label>
-            <select name="board_id" id="eit-board" class="form-control" required>
+        <div class="form-group"><label class="form-label">장비(보드)</label>
+            <select name="board_id" id="eit-board" class="form-control">
                 <option value="">-- 선택 --</option>
                 {% for b in boards_all %}<option value="{{ b.id }}" data-project="{{ b.project_id }}">{{ b.name }}{% if b.version %} ({{ b.version }}){% endif %}</option>{% endfor %}
             </select></div>
@@ -835,16 +810,6 @@
 </div>
 
 <script>
-// ================================================================
-//  자바스크립트 - 화면 동작 모음
-//  (아래 기능들이 순서대로 정의되어 있습니다)
-//    · 시간 입력 자동 보정        : '9' → '09:00' 처럼 형식 정리
-//    · 일괄/개별 삭제             : 체크박스 선택 삭제, 행별 삭제
-//    · 수정 모달(openEdit 등)     : 막대/✏️ 클릭 시 기존 값 불러와 폼에 채움
-//    · 등록 폼 탭/접기, 리스트 탭 : IT·휴가·기타 전환
-//    · 휴가/기타 폼 동작          : 종류·이틀이상·하루종일에 따라 칸 표시 전환
-// ================================================================
-
 // ── 시간 입력 보정: '9'→'09:00', '930'→'09:30' (타이핑만, 끝나면 형식 정리) ──
 document.addEventListener('blur', function(e) {
     const el = e.target;
@@ -1147,6 +1112,27 @@ function toggleRepeatEnd(val) {
     const grp = document.getElementById('repeat-end-group');
     grp.style.display = (val !== 'none') ? 'block' : 'none';
     if (val === 'none') document.getElementById('repeat-end').value = '';
+}
+// IT 폼 제출 전 검증 - 반복인데 종료일 없으면 막음 (입력값 보존됨: 서버로 안 감)
+function validateItForm() {
+    const repeat = document.getElementById('it-repeat').value;
+    const endVal = document.getElementById('repeat-end').value;
+    if (repeat !== 'none' && !endVal) {
+        alert('반복 일정은 반복 종료일을 지정해야 해요.\n(입력한 내용은 그대로 유지됩니다)');
+        document.getElementById('repeat-end').focus();
+        return false;   // 제출 취소 → 폼 값 유지
+    }
+    return true;
+}
+// IT 폼 초기화 - 모든 선택/입력 비우기
+function resetItForm() {
+    if (!confirm('입력한 내용을 모두 지울까요?')) return;
+    const form = document.getElementById('it-add-form');
+    form.reset();
+    // 반복 종료일 그룹 숨김 상태로 복귀
+    toggleRepeatEnd('none');
+    // 보드 필터 초기화 (전체 다시 보이게)
+    filterBoards('');
 }
 // 상태 변경 (AJAX)
 function updateStatus(id, status) {
