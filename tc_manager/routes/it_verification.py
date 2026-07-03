@@ -65,17 +65,6 @@ PRESET_PROJECTS = [
 # 결과값
 RESULTS = ['PASS', 'FAIL', 'NA']
 
-# workitems 엑셀 헤더 후보 (이름이 여러 개인 컬럼은 별칭을 모두 인식)
-COL_ALIASES = {
-    'sitl':      ['SITL ID', 'SITL ID (CI TC)', 'SITL'],
-    'wid':       ['ID'],
-    'subsystem': ['Sub System', 'SubSystem'],
-    'ip':        ['IP'],
-    'title':     ['Title'],
-    'automated': ['Automated', 'Automated*', 'CI Test Automated'],
-    'domain':    ['Domain'],
-}
-
 
 # ──────────────────────────────────────────
 #  공통: 로그인 데코레이터
@@ -104,16 +93,16 @@ def init_itverify_db():
     # workitems 파싱 결과 (프로젝트별 SITL 목록)
     c.execute('''CREATE TABLE IF NOT EXISTS workitem (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        project     TEXT NOT NULL,        -- 프로젝트명 (예: IDCEVO)
-        sitl_id     TEXT,                 -- SITL ID
-        wid         TEXT,                 -- ID
-        subsystem   TEXT,                 -- Sub System
-        ip          TEXT,                 -- IP
-        title       TEXT,                 -- Title (테스트 항목명)
-        automated   TEXT,                 -- Automated 여부
+        project     TEXT NOT NULL,        -- 프로젝트 (예: IDCEVO_SOP28V2)
+        board       TEXT,                 -- 보드 (예: EVT2)
+        sitl_id     TEXT,                 -- SITL ID (예: SITL_1)
         domain      TEXT,                 -- misc/sfi/linux/android/baremetal linux
         created_at  TEXT DEFAULT (datetime('now','localtime'))
     )''')
+    # 기존 workitem 테이블에 board 컬럼이 없으면 추가 (마이그레이션)
+    wi_cols = [r[1] for r in c.execute("PRAGMA table_info(workitem)").fetchall()]
+    if 'board' not in wi_cols:
+        c.execute("ALTER TABLE workitem ADD COLUMN board TEXT")
 
     # 검증 로그
     c.execute('''CREATE TABLE IF NOT EXISTS verification_log (
@@ -138,57 +127,82 @@ def init_itverify_db():
 
 
 # ──────────────────────────────────────────
-#  workitems 엑셀 파싱 헬퍼
+#  SITL txt 파싱 헬퍼
 # ──────────────────────────────────────────
-def _find_col(header_row, aliases):
-    """헤더 행에서 별칭 중 하나와 일치하는 컬럼 index를 찾음 (없으면 None)"""
-    norm = {str(v).strip(): i for i, v in enumerate(header_row) if v is not None}
-    for alias in aliases:
-        if alias in norm:
-            return norm[alias]
-    return None
-
-
-def parse_workitems(file_stream):
+#  txt 형식 (exe가 SITL 관리에 쓰던 파일):
+#     Domain=IDCEVO_SOP28V2_EVT2_MISC     ← 프로젝트_보드_EVT2_도메인
+#     TC=
+#     1,2,3,4                              ← 각 번호가 SITL 번호 (1 → SITL_1)
+#
+#     Domain=IDCEVO_SOP28V2_EVT2_SFI
+#     TC=
+#     4,5,6
+#
+#  파싱 규칙:
+#    · 'Domain=IDCEVO_SOP28V2_EVT2_MISC' 를 '_'로 나눠
+#        맨 뒤 = 도메인(MISC), 그 앞 = 보드(EVT2), 나머지 = 프로젝트(IDCEVO_SOP28V2)
+#    · 'TC=' 다음 줄들의 쉼표 구분 숫자가 SITL 번호 → 'SITL_숫자'
+def parse_sitl_txt(raw_text):
     """
-    workitems 엑셀(첫 시트)에서 SITL 행들을 파싱해 리스트로 반환.
-    반환: [{'sitl_id','wid','subsystem','ip','title','automated','domain'}, ...]
+    SITL txt 내용을 파싱해 (project, board, domain, sitl_id) 목록으로 반환.
+    반환: [{'project','board','domain','sitl_id'}, ...]
     """
-    import openpyxl
-    wb = openpyxl.load_workbook(file_stream, read_only=True, data_only=True)
-    ws = wb.active
-
-    rows = ws.iter_rows(values_only=True)
-    header = next(rows, None)
-    if header is None:
-        return []
-
-    # 각 논리 컬럼이 엑셀 몇 번째 열인지 매핑
-    idx = {key: _find_col(header, aliases) for key, aliases in COL_ALIASES.items()}
-
     items = []
-    for row in rows:
-        def cell(key):
-            i = idx.get(key)
-            if i is None or i >= len(row):
-                return ''
-            v = row[i]
-            return '' if v is None else str(v).strip()
+    cur_project = None
+    cur_board   = None
+    cur_domain  = None
+    collecting  = False   # 'TC=' 이후 숫자 줄을 모으는 중인지
 
-        sitl = cell('sitl')
-        if not sitl:          # SITL ID 없는 행은 건너뜀
+    for line in raw_text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+
+        # Domain= 줄 → 프로젝트/보드/도메인 추출
+        if s.lower().startswith('domain='):
+            combo = s.split('=', 1)[1].strip()      # IDCEVO_SOP28V2_EVT2_MISC
+            parts = combo.rsplit('_', 2)            # ['IDCEVO_SOP28V2', 'EVT2', 'MISC']
+            if len(parts) == 3:
+                cur_project = parts[0]              # IDCEVO_SOP28V2
+                cur_board   = parts[1]              # EVT2
+                cur_domain  = parts[2].lower()      # misc
+            elif len(parts) == 2:                   # 보드 없이 프로젝트_도메인만 있는 경우
+                cur_project, cur_board, cur_domain = parts[0], '', parts[1].lower()
+            else:
+                cur_project, cur_board, cur_domain = combo, '', ''
+            collecting = False
+            continue
+
+        # TC= 줄 → 다음부터 숫자 수집 시작 (같은 줄에 값이 붙어 있을 수도 있음)
+        if s.lower().startswith('tc='):
+            collecting = True
+            after = s.split('=', 1)[1].strip()      # 'TC=1,2,3' 처럼 붙은 경우 대비
+            if after:
+                _add_tc_numbers(items, cur_project, cur_board, cur_domain, after)
+            continue
+
+        # 수집 중이면 숫자(쉼표구분) 줄로 간주
+        if collecting and cur_project and cur_domain:
+            _add_tc_numbers(items, cur_project, cur_board, cur_domain, s)
+
+    return items
+
+
+def _add_tc_numbers(items, project, board, domain, text):
+    """'1,2,3,4' 같은 문자열에서 번호를 뽑아 SITL_번호로 추가"""
+    for tok in text.split(','):
+        num = tok.strip()
+        if not num:
+            continue
+        num = re.sub(r'[^0-9A-Za-z]', '', num)   # 혹시 모를 잡문자 제거
+        if not num:
             continue
         items.append({
-            'sitl_id':   sitl,
-            'wid':       cell('wid'),
-            'subsystem': cell('subsystem'),
-            'ip':        cell('ip'),
-            'title':     cell('title'),
-            'automated': cell('automated'),
-            'domain':    cell('domain').lower(),   # 비교 편의를 위해 소문자
+            'project': project,
+            'board':   board,
+            'domain':  domain,
+            'sitl_id': f'SITL_{num}',
         })
-    wb.close()
-    return items
 
 
 # ══════════════════════════════════════════
@@ -223,42 +237,46 @@ def workitems_view():
 @itverify_bp.route('/workitems/upload', methods=['POST'])
 @login_required
 def workitems_upload():
-    project = request.form.get('project', '').strip()
     file = request.files.get('workitems_file')
 
-    if not project:
-        flash('프로젝트명을 입력해주세요.', 'error')
-        return redirect(url_for('it_verification.workitems_view'))
     if not file or not file.filename:
-        flash('workitems 엑셀 파일을 선택해주세요.', 'error')
+        flash('SITL txt 파일을 선택해주세요.', 'error')
         return redirect(url_for('it_verification.workitems_view'))
-    if not file.filename.lower().endswith(('.xlsx', '.xls')):
-        flash('엑셀 파일(.xlsx)만 업로드할 수 있어요.', 'error')
+    if not file.filename.lower().endswith('.txt'):
+        flash('txt 파일만 업로드할 수 있어요.', 'error')
         return redirect(url_for('it_verification.workitems_view'))
 
     try:
-        items = parse_workitems(file.stream)
+        raw = file.stream.read()
+        # 인코딩 자동 처리 (utf-8 우선, 실패 시 cp949)
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            text = raw.decode('cp949', errors='replace')
+        items = parse_sitl_txt(text)
     except Exception as e:
-        flash(f'엑셀을 읽는 중 오류가 났어요: {e}', 'error')
+        flash(f'txt를 읽는 중 오류가 났어요: {e}', 'error')
         return redirect(url_for('it_verification.workitems_view'))
 
     if not items:
-        flash('SITL 데이터를 찾지 못했어요. 컬럼(SITL ID 등)을 확인해주세요.', 'error')
+        flash('SITL 데이터를 찾지 못했어요. txt 형식(Domain= / TC=)을 확인해주세요.', 'error')
         return redirect(url_for('it_verification.workitems_view'))
 
+    # 파일 안에 여러 프로젝트가 있을 수 있음 → 프로젝트별로 갱신
+    projects_in_file = sorted(set(it['project'] for it in items))
+
     db = get_db()
-    # 같은 프로젝트명은 갱신 개념 → 기존 것 지우고 새로 넣음
-    db.execute("DELETE FROM workitem WHERE project=?", (project,))
+    for proj in projects_in_file:
+        db.execute("DELETE FROM workitem WHERE project=?", (proj,))
     for it in items:
-        db.execute('''INSERT INTO workitem
-            (project, sitl_id, wid, subsystem, ip, title, automated, domain)
-            VALUES (?,?,?,?,?,?,?,?)''',
-            (project, it['sitl_id'], it['wid'], it['subsystem'],
-             it['ip'], it['title'], it['automated'], it['domain']))
+        db.execute('''INSERT INTO workitem (project, board, sitl_id, domain)
+                      VALUES (?,?,?,?)''',
+                   (it['project'], it['board'], it['sitl_id'], it['domain']))
     db.commit()
     db.close()
 
-    flash(f'✅ {project} workitems 등록 완료 (SITL {len(items)}건)', 'success')
+    proj_str = ', '.join(projects_in_file)
+    flash(f'✅ 등록 완료 · 프로젝트: {proj_str} · SITL {len(items)}건', 'success')
     return redirect(url_for('it_verification.workitems_view'))
 
 
@@ -283,10 +301,6 @@ def log_view():
     # 등록된 프로젝트 목록 (workitem 기준)
     projects = [r['project'] for r in db.execute(
         "SELECT DISTINCT project FROM workitem ORDER BY project").fetchall()]
-    # 보드 목록 (기존 boards 테이블 재사용, 프로젝트 무관 전체)
-    boards = db.execute(
-        "SELECT DISTINCT name FROM boards WHERE is_active=1 ORDER BY name").fetchall()
-    board_names = [b['name'] for b in boards]
 
     # 최근 로그 (하단 목록용) - 날짜 필터 있으면 적용
     filter_date = request.args.get('date', '').strip()
@@ -304,7 +318,7 @@ def log_view():
     db.close()
 
     return render_template('it_verification/log.html',
-                           projects=projects, boards=board_names,
+                           projects=projects,
                            domains=DOMAINS, logs=logs, dates=dates,
                            filter_date=filter_date,
                            today_str=datetime.date.today().strftime('%Y-%m-%d'))
@@ -320,11 +334,15 @@ def get_sitls():
         return jsonify({'ok': False, 'sitls': []})
 
     db = get_db()
-    rows = db.execute('''SELECT sitl_id, title FROM workitem
-                         WHERE project=? AND domain=?
-                         ORDER BY sitl_id''', (project, domain)).fetchall()
+    rows = db.execute('''SELECT sitl_id FROM workitem
+                         WHERE project=? AND domain=?''', (project, domain)).fetchall()
     db.close()
-    sitls = [{'sitl_id': r['sitl_id'], 'title': r['title'] or ''} for r in rows]
+    # SITL_2 < SITL_10 이 되도록 숫자 기준 정렬
+    def sort_key(sid):
+        m = re.search(r'(\d+)', sid)
+        return (int(m.group(1)) if m else 0, sid)
+    sids = sorted([r['sitl_id'] for r in rows], key=sort_key)
+    sitls = [{'sitl_id': s, 'title': ''} for s in sids]
     return jsonify({'ok': True, 'sitls': sitls})
 
 
@@ -338,38 +356,45 @@ def _safe(s):
 @login_required
 def log_save():
     project = request.form.get('project', '').strip()
-    board   = request.form.get('board', '').strip()
     domain  = request.form.get('domain', '').strip().lower()
     sitl_id = request.form.get('sitl_id', '').strip()
     result  = request.form.get('result', '').strip().upper()
     content = request.form.get('content', '').strip()
 
-    # 필수값 검증
-    if not all([project, board, domain, sitl_id, result]):
-        flash('프로젝트·보드·도메인·SITL·결과를 모두 선택/입력해주세요.', 'error')
+    # 필수값 검증 (프로젝트명에 보드 정보가 이미 포함됨)
+    if not all([project, domain, sitl_id, result]):
+        flash('프로젝트·도메인·SITL·결과를 모두 선택해주세요.', 'error')
         return redirect(url_for('it_verification.log_view'))
     if result not in RESULTS:
         flash('결과는 PASS/FAIL/NA 중 하나여야 해요.', 'error')
         return redirect(url_for('it_verification.log_view'))
 
-    # 해당 SITL의 제목(참고용) 가져오기
     db = get_db()
-    wi = db.execute('''SELECT title FROM workitem
-                       WHERE project=? AND domain=? AND sitl_id=? LIMIT 1''',
-                    (project, domain, sitl_id)).fetchone()
-    title = wi['title'] if wi else ''
+
+    # 이 프로젝트+도메인의 보드 정보를 workitem에서 조회
+    wi = db.execute('''SELECT board FROM workitem
+                       WHERE project=? AND domain=? LIMIT 1''',
+                    (project, domain)).fetchone()
+    board = (wi['board'] if wi and wi['board'] else '')
 
     today = datetime.date.today()
-    date_str    = today.strftime('%Y-%m-%d')   # 폴더용
-    date_compact = today.strftime('%Y%m%d')    # 파일명용
+    date_str     = today.strftime('%Y-%m-%d')   # 폴더용
+    date_compact = today.strftime('%Y%m%d')      # 파일명용
+
+    # 파일명/폴더에 쓸 조합 (보드가 있으면 프로젝트_보드_도메인, 없으면 프로젝트_도메인)
+    if board:
+        combo    = f"{_safe(project)}_{_safe(board)}_{_safe(domain)}"
+        name_pre = f"{_safe(project)}_{_safe(board)}_{_safe(domain)}_{_safe(sitl_id)}"
+    else:
+        combo    = f"{_safe(project)}_{_safe(domain)}"
+        name_pre = f"{_safe(project)}_{_safe(domain)}_{_safe(sitl_id)}"
 
     # 폴더:  logs/날짜/프로젝트_보드_도메인/
-    combo = f"{_safe(project)}_{_safe(board)}_{_safe(domain)}"
     folder = os.path.join(LOG_ROOT, date_str, combo)
     os.makedirs(folder, exist_ok=True)
 
     # 파일명: 프로젝트_보드_도메인_SITL_결과_날짜.txt
-    filename = f"{_safe(project)}_{_safe(board)}_{_safe(domain)}_{_safe(sitl_id)}_{result}_{date_compact}.txt"
+    filename = f"{name_pre}_{result}_{date_compact}.txt"
     full_path = os.path.join(folder, filename)
 
     # txt 내용 구성
@@ -378,7 +403,6 @@ def log_save():
         f"[보드] {board}\n"
         f"[도메인] {domain}\n"
         f"[SITL] {sitl_id}\n"
-        f"[제목] {title}\n"
         f"[결과] {result}\n"
         f"[작성일] {date_str}\n"
         f"{'-'*40}\n"
@@ -393,7 +417,7 @@ def log_save():
     db.execute('''INSERT INTO verification_log
         (log_date, project, board, domain, sitl_id, title, result, content, file_path, created_by)
         VALUES (?,?,?,?,?,?,?,?,?,?)''',
-        (date_str, project, board, domain, sitl_id, title, result, content,
+        (date_str, project, board, domain, sitl_id, '', result, content,
          rel_path, session.get('user_id')))
     db.commit()
     db.close()
