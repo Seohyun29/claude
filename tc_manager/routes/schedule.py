@@ -1,46 +1,9 @@
-"""
-================================================================================
-  일정 캘린더 모듈 (schedule.py)
-================================================================================
-
-[이 모듈이 하는 일]
-  IT 팀의 월간 일정을 한 화면에서 관리하는 Flask 블루프린트입니다.
-  세 가지 종류의 일정을 캘린더(막대 형태) + 리스트로 보여주고,
-  등록 / 수정 / 삭제 / 일괄삭제를 지원합니다.
-
-    1) IT 일정  : 프로젝트·장비(보드) 테스트 일정. 매주/격주 반복 가능. (파란색)
-    2) 휴가     : 연차(여러 날 가능) / 반차 / 반반차. 반차류는 시간 입력. (노란색)
-    3) 기타 일정: 회의·세미나 등. 여러 날·하루종일·시간 지정 가능.      (초록색)
-
-[전체 구조 - 회사 동료가 빠르게 파악하려면 이 순서로 읽으세요]
-  · init_schedule_db()  : 앱 시작 시 테이블 생성/마이그레이션 (기존 DB 보존)
-  · calendar_view()     : 메인 화면. 일정을 모아 '막대(bar)'로 배치해 화면에 전달
-  · add_* / edit_* / delete_* / bulk_delete : 등록·수정·삭제 처리
-  · get_item()          : 수정 폼을 채우기 위한 단건 조회 (JSON 반환)
-
-[DB 테이블]
-  · it_schedule : IT 일정  (기존 테이블에 담당자/반복 컬럼을 자동 추가)
-  · vacation    : 휴가      (종류 leave_type, 시간 start_time/end_time)
-  · etc_event   : 기타 일정 (start~end 기간, all_day, 시간)
-
-[기존 앱(tc_manager)에 붙이는 방법]  ※ app.py 안 create_app() 에 3줄 추가
-    from routes.schedule import schedule_bp, init_schedule_db
-    init_schedule_db()                  # init_db() 호출 바로 아래
-    app.register_blueprint(schedule_bp) # 다른 블루프린트 등록 옆에
-  그리고 base.html 사이드바에 링크 한 줄:
-    <a href="{{ url_for('schedule.calendar_view') }}">📅 일정 캘린더</a>
-
-[접속 주소]  http://[서버IP]:5000/schedule/
-================================================================================
-"""
-
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from database import get_db          # tc_manager의 공용 DB 연결 함수 (SQLite)
+from database import get_db
 from functools import wraps
 import datetime
 import re
 
-# 이 모듈의 모든 URL은 '/schedule' 로 시작합니다. (예: /schedule/it/add)
 schedule_bp = Blueprint('schedule', __name__, url_prefix='/schedule')
 
 # 시간 형식 검증용 (HH:MM, 00:00~23:59)
@@ -97,43 +60,38 @@ def login_required(f):
 # ──────────────────────────────────────────
 def init_schedule_db():
     """
-    [앱 시작 시 1회 실행] 이 모듈이 쓰는 테이블을 준비한다.
-
-    중요: 기존 데이터를 절대 지우지 않는다. (안전한 마이그레이션)
-      - 이미 있는 it_schedule 테이블에는 '없는 컬럼만' 추가
-      - vacation / etc_event 테이블은 없을 때만 새로 생성 (CREATE TABLE IF NOT EXISTS)
-    덕분에 이미 운영 중인 DB에 이 모듈을 붙여도 기존 일정이 보존된다.
+    기존 it_schedule 테이블에 담당자·반복 컬럼 추가,
+    vacation 테이블 신규 생성
     """
     db = get_db()
     c = db.cursor()
 
-    # [1] it_schedule(기존 테이블)에 이 모듈이 추가로 쓰는 컬럼을 보강
-    #     PRAGMA table_info → 현재 컬럼 목록을 읽어와, 없는 것만 ALTER로 추가
+    # it_schedule: 담당자·반복 컬럼 마이그레이션
     it_cols = [r[1] for r in c.execute("PRAGMA table_info(it_schedule)").fetchall()]
     for col, col_type in [
-        ('assignee_id',    'INTEGER'),              # 담당자 (users.id)
-        ('repeat_type',    "TEXT DEFAULT 'none'"),  # 반복: none / weekly(매주) / biweekly(격주)
-        ('repeat_end',     'TEXT'),                 # 반복 종료일
-        ('parent_id',      'INTEGER'),              # (예비) 반복 원본 id
+        ('assignee_id',    'INTEGER'),          # 담당자 (users.id)
+        ('repeat_type',    "TEXT DEFAULT 'none'"),  # none / weekly / biweekly
+        ('repeat_end',     'TEXT'),             # 반복 종료일
+        ('parent_id',      'INTEGER'),          # 반복 원본 id (자식 레코드용)
     ]:
         if col not in it_cols:
             c.execute(f"ALTER TABLE it_schedule ADD COLUMN {col} {col_type}")
 
-    # [2] vacation(휴가) 테이블 - 없으면 새로 생성
+    # vacation 테이블 신규 생성
     c.execute('''CREATE TABLE IF NOT EXISTS vacation (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id     INTEGER NOT NULL,
         start_date  TEXT NOT NULL,
         end_date    TEXT NOT NULL,
-        leave_type  TEXT DEFAULT 'full',  -- 종류: full(연차) / half(반차) / quarter(반반차)
+        leave_type  TEXT DEFAULT 'full',  -- full / half / quarter
         start_time  TEXT,                 -- 반차/반반차 시작 시간 (HH:MM)
         end_time    TEXT,                 -- 반차/반반차 종료 시간 (HH:MM)
-        reason      TEXT,                 -- (현재 미사용)
+        reason      TEXT,
         created_at  TEXT DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
 
-    # [2-1] 예전 버전 vacation 테이블에는 없을 수 있는 컬럼 보강
+    # vacation 마이그레이션 (기존 테이블에 컬럼 없으면 추가)
     vac_cols = [r[1] for r in c.execute("PRAGMA table_info(vacation)").fetchall()]
     for col, col_type in [
         ('leave_type', "TEXT DEFAULT 'full'"),
@@ -143,7 +101,7 @@ def init_schedule_db():
         if col not in vac_cols:
             c.execute(f"ALTER TABLE vacation ADD COLUMN {col} {col_type}")
 
-    # [3] etc_event(기타 일정) 테이블 - 회의/세미나 등. 없으면 새로 생성
+    # 기타 일정 테이블 (회의/세미나 등)
     c.execute('''CREATE TABLE IF NOT EXISTS etc_event (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         title       TEXT NOT NULL,
@@ -282,15 +240,11 @@ def calendar_view():
         ORDER BY e.event_date, e.start_time
     ''', (last_str, first_str)).fetchall()
 
-    # ── 세 종류 일정을 하나의 '막대 인스턴스' 목록으로 통합 ──
-    #  IT/휴가/기타를 같은 형태({kind, start, end, label, title})로 합쳐서
-    #  아래 막대 배치 로직이 종류를 구분하지 않고 한 번에 처리할 수 있게 함.
-    #    · kind  : 색을 결정 (it=파랑, vac=노랑, etc=초록)
-    #    · label : 막대 안에 보이는 짧은 글자
-    #    · title : 마우스를 올렸을 때 보이는 전체 설명(툴팁)
+    # ── 막대(bar) 렌더링용 통합 이벤트 인스턴스 생성 ──
+    # 각 인스턴스: {kind, start(date), end(date), label, title}
     instances = []
 
-    # [IT 일정] 각 일정은 하루짜리. 라벨은 "프로젝트 / 장비" 형태.
+    # IT 일정 (각 발생은 하루짜리)
     for ev in it_events:
         d = datetime.date.fromisoformat(ev['scheduled_date'])
         label = ev.get('project_name') or '미지정'
@@ -304,15 +258,15 @@ def calendar_view():
             'label': '🔵 ' + label, 'title': title,
         })
 
-    # [휴가] 연차는 여러 날 가능(start~end). 반차/반반차는 하루 + 시간 표시.
+    # 휴가
     for v in vacations_raw:
         s = datetime.date.fromisoformat(v['start_date'])
         e = datetime.date.fromisoformat(v['end_date'])
         lt = v['leave_type'] or 'full'
-        if lt == 'full':                                   # 연차 → "홍길동 연차"
+        if lt == 'full':
             label = f"🟡 {v['user_name']} 연차"
             title = f"{v['user_name']} · 연차"
-        elif v['start_time'] and v['end_time']:            # 반차류 → "홍길동 09-13"
+        elif v['start_time'] and v['end_time']:
             tlabel = f"{fmt_time_short(v['start_time'])}-{fmt_time_short(v['end_time'])}"
             label = f"🟡 {v['user_name']} {tlabel}"
             title = f"{v['user_name']} · {LEAVE_SHORT.get(lt,'반차')} {v['start_time']}~{v['end_time']}"
@@ -324,14 +278,14 @@ def calendar_view():
             'label': label, 'title': title,
         })
 
-    # [기타 일정] start~end 기간. 하루종일이면 시간 생략, 아니면 시간 표시.
+    # 기타 일정
     for e in etc_raw:
         s = datetime.date.fromisoformat(e['event_date'])
         end = datetime.date.fromisoformat(e['end_date']) if e['end_date'] else s
-        if e['all_day']:                                   # 하루종일 → "회의 하루종일"
+        if e['all_day']:
             label = f"🟢 {e['title']} 하루종일"
             title = f"{e['title']} · 하루종일"
-        elif e['start_time'] and e['end_time']:            # 시간 지정 → "회의 14-15"
+        elif e['start_time'] and e['end_time']:
             tlabel = f"{fmt_time_short(e['start_time'])}-{fmt_time_short(e['end_time'])}"
             label = f"🟢 {e['title']} {tlabel}"
             title = f"{e['title']} {e['start_time']}~{e['end_time']}"
@@ -382,79 +336,65 @@ def calendar_view():
 
     db.close()
 
-    # ════════════════════════════════════════════════════════════════════
-    #  캘린더를 '주(week)' 단위로 만들고, 각 일정을 가로 막대(bar)로 배치
-    # ════════════════════════════════════════════════════════════════════
-    #  [핵심 아이디어]
-    #   구글 캘린더처럼 여러 날 일정이 칸을 가로질러 이어지는 막대로 보이게 함.
-    #   - 한 주 = 7칸(일~토). 각 일정은 그 주 안에서 col_start~col_end 칸을 차지.
-    #   - 일정이 여러 주에 걸치면 주마다 잘라서(클리핑) 각각 막대로 그림.
-    #   - 같은 칸에서 막대가 겹치지 않도록 '레인(lane=세로 줄)'을 자동 배정.
-    #   - 한 주에 막대가 너무 많으면 MAX_LANES까지만 보이고 나머지는 '+N'으로 표시.
+    # ── 캘린더 주(week) + 막대(bar) 배치 생성 ──
+    # 헤더가 일요일부터 시작하므로 그리드도 일요일 시작으로 맞춤
     MAX_LANES = 4   # 한 주에 보여줄 최대 막대 줄 수 (초과분은 +N 표시)
     cal_weeks = []
-    # 달력 첫 칸을 '일요일'로 맞춤 (헤더가 일~토 순서이므로)
-    # weekday(): 월=0..일=6  →  (weekday()+1)%7 만큼 빼면 그 주 일요일로 이동
     cur = first_day - datetime.timedelta(days=(first_day.weekday() + 1) % 7)
 
     while cur <= last_day:
-        week_start = cur                                  # 그 주 일요일
-        week_end   = cur + datetime.timedelta(days=6)     # 그 주 토요일
+        week_start = cur
+        week_end   = cur + datetime.timedelta(days=6)
 
-        # (1) 화면에 그릴 날짜 셀 7개 만들기
+        # 7개 날짜 셀
         days = []
         for i in range(7):
             d = week_start + datetime.timedelta(days=i)
             days.append({
                 'date':       d,
-                'is_current': d.month == month,   # 이번 달이 아니면 흐리게 표시
-                'is_today':   d == today,          # 오늘이면 강조
+                'is_current': d.month == month,
+                'is_today':   d == today,
             })
 
-        # (2) 이 주에 걸치는 일정만 골라, 주 경계에 맞춰 칸(col)을 자름
-        #     예) 6/27(토)~6/30(화) 일정 → 이번 주에서는 토요일 1칸,
-        #         다음 주에서는 일~화 3칸으로 각각 잘려서 막대 2개가 됨
+        # 이 주에 걸치는 이벤트만 추출 + 주 경계로 컬럼 클리핑
         week_evs = []
         for inst in instances:
             if inst['end'] >= week_start and inst['start'] <= week_end:
-                cs = max(0, (inst['start'] - week_start).days)  # 시작 칸(0~6)
-                ce = min(6, (inst['end']   - week_start).days)  # 끝 칸(0~6)
+                cs = max(0, (inst['start'] - week_start).days)
+                ce = min(6, (inst['end']   - week_start).days)
                 week_evs.append({
                     'id':       inst['id'],
-                    'kind':     inst['kind'],     # it / vac / etc (색 구분)
+                    'kind':     inst['kind'],
                     'label':    inst['label'],
-                    'title':    inst['title'],    # 마우스 올리면 보이는 전체 설명
+                    'title':    inst['title'],
                     'col_start': cs,
                     'col_end':   ce,
-                    'is_start': inst['start'] >= week_start,  # 진짜 시작이 이 주 안 → 왼쪽 모서리 둥글게
-                    'is_end':   inst['end']   <= week_end,    # 진짜 끝이 이 주 안   → 오른쪽 모서리 둥글게
+                    'is_start': inst['start'] >= week_start,  # 진짜 시작이 이 주 안
+                    'is_end':   inst['end']   <= week_end,    # 진짜 끝이 이 주 안
                 })
 
-        # (3) 막대 정렬: 시작 칸이 빠른 순 → 같으면 긴 막대 먼저
+        # 막대 정렬: 시작 컬럼 → 긴 것 먼저
         week_evs.sort(key=lambda x: (x['col_start'], -(x['col_end'] - x['col_start'])))
 
-        # (4) 레인(세로 줄) 배정 - '그리디' 방식
-        #     각 막대를, 칸이 겹치지 않는 가장 위쪽 줄에 차례로 끼워 넣음.
-        #     겹치는 막대는 자동으로 아래 줄로 내려가 서로 안 겹치게 됨.
-        lanes = []  # lanes[줄번호] = 그 줄이 이미 차지한 (시작칸, 끝칸) 목록
+        # 레인(줄) 그리디 배치 - 컬럼이 겹치지 않는 첫 줄에 배치
+        lanes = []  # 각 레인 = [(cs,ce), ...]
         for ev in week_evs:
             placed = False
             for li, lane in enumerate(lanes):
-                # 이 줄(lane)의 기존 막대들과 하나도 안 겹치면 여기에 배치
                 if all(ev['col_end'] < o[0] or ev['col_start'] > o[1] for o in lane):
                     lane.append((ev['col_start'], ev['col_end']))
                     ev['lane'] = li
                     placed = True
                     break
-            if not placed:                 # 들어갈 줄이 없으면 새 줄을 만듦
+            if not placed:
                 lanes.append([(ev['col_start'], ev['col_end'])])
                 ev['lane'] = len(lanes) - 1
 
-        # (5) MAX_LANES까지만 화면에 그리고, 초과 막대는 '+N'으로 셈
-        bars     = [e for e in week_evs if e['lane'] < MAX_LANES]   # 실제로 그릴 막대
-        overflow = [e for e in week_evs if e['lane'] >= MAX_LANES]  # 넘쳐서 +N 처리할 막대
+        # 보이는 막대 vs 넘치는 막대 분리
+        bars     = [e for e in week_evs if e['lane'] < MAX_LANES]
+        overflow = [e for e in week_evs if e['lane'] >= MAX_LANES]
 
-        # 날짜(칸)별로 넘친 막대가 몇 개인지 세기 → 해당 칸에 '+N' 표시
+        # 날짜별 넘침 개수 (+N 표시용)
         overflow_count = [0] * 7
         for e in overflow:
             for c in range(e['col_start'], e['col_end'] + 1):
@@ -464,7 +404,7 @@ def calendar_view():
             'days':           days,
             'bars':           bars,
             'overflow_count': overflow_count,
-            'n_lanes':        min(len(lanes), MAX_LANES),  # 이 주의 막대 줄 수(높이 계산용)
+            'n_lanes':        min(len(lanes), MAX_LANES),
         })
         cur += datetime.timedelta(weeks=1)
 
@@ -503,8 +443,8 @@ def add_it():
         flash('날짜를 입력해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view'))
 
-    if not project_id or not board_id:
-        flash('프로젝트와 장비를 선택해주세요.', 'error')
+    if not project_id:
+        flash('프로젝트를 선택해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view', tab='it'))
 
     # repeat 설정 검증
@@ -805,8 +745,8 @@ def edit_it(schedule_id):
     if not scheduled_date:
         flash('날짜를 입력해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view'))
-    if not project_id or not board_id:
-        flash('프로젝트와 장비를 선택해주세요.', 'error')
+    if not project_id:
+        flash('프로젝트를 선택해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view', tab='it'))
     if repeat_type != 'none' and not repeat_end:
         flash('반복 종료일을 입력해주세요.', 'error')
