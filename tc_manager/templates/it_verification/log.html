@@ -76,13 +76,13 @@
 
     <!-- 상단 바 -->
     <div class="iv-top">
-        <select name="project_board" id="sel-combo" class="iv-sel" onchange="onComboChange()" required>
-            <option value="">프로젝트_보드</option>
-            {% for c in combos %}
-            <option value="{{ c.value }}"
-                    data-project="{{ c.project }}"
-                    data-board="{{ c.board }}">{{ c.value }}</option>
-            {% endfor %}
+        <select name="project" id="sel-project" class="iv-sel" onchange="onProjectChange()" required>
+            <option value="">프로젝트</option>
+            {% for p in projects %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <span class="iv-usc">_</span>
+        <select name="board" id="sel-board" class="iv-sel">
+            <option value="">보드</option>
         </select>
         <span class="iv-usc">_</span>
         <select name="domain" id="sel-domain" class="iv-sel" onchange="loadSitls()" required>
@@ -99,9 +99,10 @@
         <button type="submit" class="btn btn-primary btn-sm" style="padding:6px 16px;">💾 SAVE</button>
     </div>
 
-    <!-- 실제 전송값: 조합에서 분리한 원 프로젝트/보드 -->
-    <input type="hidden" name="project" id="sel-project">
-    <input type="hidden" name="board" id="sel-board">
+    <!-- 프로젝트별 보드 매핑 (JS에서 사용) -->
+    <script>
+    const PROJECT_BOARDS = {{ project_boards|tojson }};
+    </script>
 
     <!-- 본문 -->
     <div class="iv-body">
@@ -177,12 +178,18 @@
 
 <script>
 // 프로젝트+도메인 선택 시 → 해당 SITL 목록 불러오기
-// 프로젝트_보드 조합 선택 → 원 프로젝트/보드를 hidden에 나눠 담고 SITL 로드
-function onComboChange() {
-    const sel = document.getElementById('sel-combo');
-    const opt = sel.options[sel.selectedIndex];
-    document.getElementById('sel-project').value = opt ? (opt.dataset.project || '') : '';
-    document.getElementById('sel-board').value   = opt ? (opt.dataset.board || '') : '';
+// 프로젝트 선택 → 그 프로젝트의 보드로 보드 드롭다운을 채우고 SITL 로드
+function onProjectChange() {
+    const project = document.getElementById('sel-project').value;
+    const boardSel = document.getElementById('sel-board');
+    // 보드 드롭다운 새로 채우기
+    boardSel.innerHTML = '<option value="">보드</option>';
+    const boards = (PROJECT_BOARDS[project] || []);
+    boards.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b; opt.textContent = b;
+        boardSel.appendChild(opt);
+    });
     loadSitls();
 }
 
