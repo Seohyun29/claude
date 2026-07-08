@@ -230,13 +230,35 @@ function loadSitls() {
         .catch(() => { listEl.innerHTML = '<div class="iv-sitl-empty">불러오기 실패</div>'; });
 }
 
-// SITL 하나 선택
+// SITL 하나 선택 → 오늘 저장한 로그가 있으면 불러와서 수정 모드
 function pickSitl(el, s) {
     document.querySelectorAll('.iv-sitl-item').forEach(i => i.classList.remove('sel'));
     el.classList.add('sel');
     document.getElementById('sel-sitl').value = s.sitl_id;
-    document.getElementById('log-info').textContent =
-        s.sitl_id + (s.title ? ' · ' + s.title : '') + ' — 로그 작성';
+
+    const project = document.getElementById('sel-project').value;
+    const board   = document.getElementById('sel-board').value;
+    const domain  = document.getElementById('sel-domain').value;
+    const infoEl  = document.getElementById('log-info');
+    const contentEl = document.getElementById('log-content');
+
+    // 기본: 새 로그 작성 상태로 초기화
+    infoEl.textContent = s.sitl_id + ' — 로그 작성';
+    contentEl.value = '';
+    document.querySelectorAll('input[name="result"]').forEach(r => r.checked = false);
+
+    // 오늘 같은 조합으로 저장한 로그가 있으면 불러오기
+    fetch(`{{ url_for('it_verification.log_get') }}?project=${encodeURIComponent(project)}&board=${encodeURIComponent(board)}&domain=${encodeURIComponent(domain)}&sitl_id=${encodeURIComponent(s.sitl_id)}`)
+        .then(r => r.json())
+        .then(d => {
+            if (d.found) {
+                contentEl.value = d.content;
+                const radio = document.querySelector(`input[name="result"][value="${d.result}"]`);
+                if (radio) radio.checked = true;
+                infoEl.textContent = s.sitl_id + ' — ✏️ 저장된 로그 (수정하면 덮어써요)';
+            }
+        })
+        .catch(() => {});
 }
 
 // 저장 전 SITL 선택 확인
@@ -246,5 +268,21 @@ document.getElementById('log-form').addEventListener('submit', function(e) {
         alert('왼쪽에서 SITL을 선택해주세요.');
     }
 });
+
+// 페이지 로드 시: 저장 직후라면 프로젝트·보드·도메인 선택 복원
+(function restoreSelections() {
+    const selProject = {{ sel_project|tojson }};
+    const selBoard   = {{ sel_board|tojson }};
+    const selDomain  = {{ sel_domain|tojson }};
+    if (!selProject) return;
+    const pSel = document.getElementById('sel-project');
+    pSel.value = selProject;
+    onProjectChange();                    // 보드 목록 채우기 + SITL 로드
+    if (selBoard) document.getElementById('sel-board').value = selBoard;
+    if (selDomain) {
+        document.getElementById('sel-domain').value = selDomain;
+        loadSitls();                      // 도메인까지 있으면 SITL 목록 로드
+    }
+})();
 </script>
 {% endblock %}
