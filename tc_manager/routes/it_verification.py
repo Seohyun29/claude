@@ -370,24 +370,37 @@ def log_view():
 @itverify_bp.route('/sitls')
 @login_required
 def get_sitls():
-    """프로젝트+도메인으로 SITL 목록을 조회 (JSON) — 왼쪽 목록 채우기용"""
+    """프로젝트+도메인으로 SITL 목록을 조회 (JSON) — 왼쪽 목록 채우기용.
+       각 SITL이 오늘 저장됐는지(saved)와, 전체/저장 개수도 함께 반환."""
     project = request.args.get('project', '').strip()
+    board   = request.args.get('board', '').strip()
     domain  = request.args.get('domain', '').strip().lower()
     if not project or not domain:
-        return jsonify({'ok': False, 'sitls': []})
+        return jsonify({'ok': False, 'sitls': [], 'total': 0, 'saved': 0})
 
     db = get_db()
     rows = db.execute('''SELECT sitl_id FROM workitem
                          WHERE project=? COLLATE NOCASE AND domain=?''',
                       (project, domain)).fetchall()
+
+    # 오늘 이 조합으로 저장된 SITL 집합
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+    saved_rows = db.execute('''SELECT DISTINCT sitl_id FROM verification_log
+                               WHERE log_date=? AND project=? AND board=? AND domain=?''',
+                            (date_str, project, board, domain)).fetchall()
+    saved_set = {r['sitl_id'] for r in saved_rows}
     db.close()
+
     # SITL_2 < SITL_10 이 되도록 숫자 기준 정렬
     def sort_key(sid):
         m = re.search(r'(\d+)', sid)
         return (int(m.group(1)) if m else 0, sid)
     sids = sorted([r['sitl_id'] for r in rows], key=sort_key)
-    sitls = [{'sitl_id': s, 'title': ''} for s in sids]
-    return jsonify({'ok': True, 'sitls': sitls})
+
+    sitls = [{'sitl_id': s, 'title': '', 'saved': (s in saved_set)} for s in sids]
+    saved_count = sum(1 for s in sids if s in saved_set)
+    return jsonify({'ok': True, 'sitls': sitls,
+                    'total': len(sids), 'saved': saved_count})
 
 
 def _safe(s):
