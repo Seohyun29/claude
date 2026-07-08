@@ -54,15 +54,6 @@ LOG_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # 검증 도메인 5종 (workitems의 Domain 값과 매칭. 소문자로 비교)
 DOMAINS = ['misc', 'sfi', 'linux', 'android', 'baremetal linux']
 
-# 미리 정해둔 프로젝트 목록 (관리자 '프로젝트 관리'의 프로젝트명과 똑같이 맞춰야
-# 보드 정보가 자동으로 연결됨. 새 프로젝트는 여기에 추가하거나 등록 시 직접 입력)
-PRESET_PROJECTS = [
-    'IDCevo26v2',
-    'IDCevo27v2',
-    'IDCevo28v2',
-    'IDCevo28v3',
-]
-
 # 결과값
 RESULTS = ['PASS', 'FAIL', 'NA']
 
@@ -251,9 +242,16 @@ def workitems_view():
     ''').fetchall()
     db.close()
 
-    # 드롭다운 목록: 미리 정한 프로젝트 + 이미 등록된 프로젝트 (중복 제거, 순서 유지)
+    # 드롭다운 목록: 관리자 '프로젝트 관리'(projects 테이블)의 프로젝트를 그대로 사용
+    #   → 관리자에서 이름을 바꾸면 여기에도 자동 반영됨
+    pdb = get_db()
+    admin_projects = [r['name'] for r in pdb.execute(
+        "SELECT name FROM projects ORDER BY name").fetchall()]
+    pdb.close()
+
+    # 관리자 목록 + (혹시 관리자에 없는데 이미 등록된) workitem 프로젝트도 합침
     registered = [r['project'] for r in rows]
-    project_options = list(PRESET_PROJECTS)
+    project_options = list(admin_projects)
     for p in registered:
         if p not in project_options:
             project_options.append(p)
