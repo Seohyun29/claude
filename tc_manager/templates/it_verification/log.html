@@ -133,10 +133,12 @@
 
 <!-- 하단: 저장된 로그 목록 -->
 <div class="iv-list-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <div style="font-size:14px;font-weight:600;">저장된 로그</div>
-        <div>
-            <label style="font-size:12px;color:#6B7280;margin-right:6px;">날짜</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <a href="{{ url_for('it_verification.log_download_all') }}"
+               class="btn btn-secondary btn-sm">⬇️ 오늘 전체 다운로드 (ZIP)</a>
+            <label style="font-size:12px;color:#6B7280;margin-left:4px;">날짜</label>
             <select class="iv-sel" onchange="location.href='{{ url_for('it_verification.log_view') }}?date='+this.value">
                 <option value="">전체</option>
                 {% for d in dates %}
@@ -147,32 +149,43 @@
     </div>
 
     {% if logs %}
-    <table class="iv-table">
-        <thead>
-            <tr><th>날짜</th><th>프로젝트</th><th>보드</th><th>도메인</th><th>SITL</th>
-                <th>결과</th><th style="text-align:center;">파일</th></tr>
-        </thead>
-        <tbody>
-        {% for log in logs %}
-        <tr>
-            <td style="white-space:nowrap;">{{ log.log_date }}</td>
-            <td style="font-weight:600;">{{ log.project }}</td>
-            <td>{{ log.board or '-' }}</td>
-            <td>{{ log.domain }}</td>
-            <td style="font-family:monospace;">{{ log.sitl_id }}</td>
-            <td><span class="res-badge res-{{ log.result }}">{{ log.result }}</span></td>
-            <td style="text-align:center;white-space:nowrap;">
-                <a href="{{ url_for('it_verification.log_download', log_id=log.id) }}"
-                   class="btn btn-secondary btn-sm">⬇️</a>
-                <form method="POST" action="{{ url_for('it_verification.log_delete', log_id=log.id) }}"
-                      onsubmit="return confirm('삭제할까요?')" style="display:inline;">
-                    <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+    <form method="POST" action="{{ url_for('it_verification.log_delete_multi') }}"
+          id="multi-del-form" onsubmit="return confirmMultiDel()">
+        <div style="margin-bottom:8px;">
+            <button type="submit" class="btn btn-danger btn-sm">🗑️ 선택 삭제</button>
+            <span style="font-size:12px;color:#9CA3AF;margin-left:6px;">체크한 로그를 한 번에 삭제</span>
+        </div>
+        <table class="iv-table">
+            <thead>
+                <tr>
+                    <th style="width:28px;text-align:center;">
+                        <input type="checkbox" id="check-all" onclick="toggleAll(this)">
+                    </th>
+                    <th>날짜</th><th>프로젝트</th><th>보드</th><th>도메인</th><th>SITL</th>
+                    <th>결과</th><th style="text-align:center;">파일</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for log in logs %}
+            <tr>
+                <td style="text-align:center;">
+                    <input type="checkbox" name="log_ids" value="{{ log.id }}" class="log-check">
+                </td>
+                <td style="white-space:nowrap;">{{ log.log_date }}</td>
+                <td style="font-weight:600;">{{ log.project }}</td>
+                <td>{{ log.board or '-' }}</td>
+                <td>{{ log.domain }}</td>
+                <td style="font-family:monospace;">{{ log.sitl_id }}</td>
+                <td><span class="res-badge res-{{ log.result }}">{{ log.result }}</span></td>
+                <td style="text-align:center;white-space:nowrap;">
+                    <a href="{{ url_for('it_verification.log_download', log_id=log.id) }}"
+                       class="btn btn-secondary btn-sm">⬇️</a>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </form>
     {% else %}
     <div style="padding:24px;text-align:center;color:#9CA3AF;font-size:13px;">
         저장된 로그가 없습니다.
@@ -279,6 +292,20 @@ document.getElementById('log-form').addEventListener('submit', function(e) {
         alert('왼쪽에서 SITL을 선택해주세요.');
     }
 });
+
+// 하단 목록: 전체 체크 토글
+function toggleAll(src) {
+    document.querySelectorAll('.log-check').forEach(c => c.checked = src.checked);
+}
+// 하단 목록: 선택 삭제 확인
+function confirmMultiDel() {
+    const n = document.querySelectorAll('.log-check:checked').length;
+    if (n === 0) {
+        alert('삭제할 로그를 선택해주세요.');
+        return false;
+    }
+    return confirm(n + '개 로그를 삭제할까요?');
+}
 
 // 페이지 로드 시: 저장 직후라면 프로젝트·보드·도메인 선택 복원
 (function restoreSelections() {
