@@ -40,6 +40,8 @@
 
 import os
 import re
+import io
+import zipfile
 import datetime
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, session, jsonify, send_file)
@@ -542,6 +544,105 @@ def log_download(log_id):
         return redirect(url_for('it_verification.log_view'))
     return send_file(full, as_attachment=True,
                      download_name=os.path.basename(full))
+
+
+def _domain_label(domain):
+    """폴더명용 도메인 표기: SFI만 전체 대문자, 나머지는 첫 글자만 대문자
+       예) sfi→SFI, linux→Linux, baremetal linux→Baremetal linux"""
+    d = (domain or '').strip()
+    if not d:
+        return ''
+    if d.lower() == 'sfi':
+        return 'SFI'
+    return d[:1].upper() + d[1:].lower()
+
+
+def _board_digits(board):
+    """보드에서 숫자만 추출: V720 → 720, 720 → 720"""
+    if not board:
+        return ''
+    m = re.findall(r'\d+', board)
+    return ''.join(m)
+
+
+@itverify_bp.route('/log/download_all')
+@login_required
+def log_download_all():
+    """오늘 저장된 로그를 ZIP으로 묶어 다운로드.
+       구조: IRYYYYMMDD/ 프로젝트(대문자)_보드(숫자)_도메인표기 / 로그.txt"""
+    today = datetime.date.today()
+    date_str = today.strftime('%Y-%m-%d')
+    ir_name = 'IR' + today.strftime('%Y%m%d')     # 예: IR20260707
+
+    db = get_db()
+    logs = db.execute('''SELECT * FROM verification_log
+                         WHERE log_date=? ORDER BY project, board, domain, sitl_id''',
+                      (date_str,)).fetchall()
+    db.close()
+
+    if not logs:
+        flash('오늘 저장된 로그가 없어요.', 'error')
+        return redirect(url_for('it_verification.log_view'))
+
+    # 메모리에 ZIP 생성
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for log in logs:
+            # 폴더명: 프로젝트(대문자)_보드(숫자만)_도메인표기
+            proj = (log['project'] or '').upper()
+            board = _board_digits(log['board'])
+            dom = _domain_label(log['domain'])
+            parts = [p for p in [proj, board, dom] if p]
+            folder = '_'.join(parts)
+
+            # 실제 저장된 txt를 읽어 ZIP에 넣음 (없으면 DB 내용으로 생성)
+            full = os.path.join(LOG_ROOT, log['file_path'] or '')
+            fname = os.path.basename(log['file_path']) if log['file_path'] else \
+                    f"{proj}_{board}_{dom}_{log['sitl_id']}_{log['result']}.txt"
+            arcname = f"{ir_name}/{folder}/{fname}"
+
+            if log['file_path'] and os.path.exists(full):
+                zf.write(full, arcname)
+            else:
+                # 파일이 없으면 DB 내용으로 즉석 생성
+                txt = (f"[프로젝트] {log['project']}\n[보드] {log['board']}\n"
+                       f"[도메인] {log['domain']}\n[SITL] {log['sitl_id']}\n"
+                       f"[결과] {log['result']}\n[작성일] {log['log_date']}\n"
+                       f"{'-'*40}\n{log['content'] or ''}\n")
+                zf.writestr(arcname, txt)
+
+    buf.seek(0)
+    return send_file(buf, mimetype='application/zip',
+                     as_attachment=True, download_name=f'{ir_name}.zip')
+
+
+@itverify_bp.route('/log/delete_multi', methods=['POST'])
+@login_required
+def log_delete_multi():
+    """체크박스로 고른 여러 로그를 한 번에 삭제 (서버 txt도 함께)"""
+    ids = request.form.getlist('log_ids')
+    if not ids:
+        flash('삭제할 로그를 선택해주세요.', 'error')
+        return redirect(url_for('it_verification.log_view'))
+
+    db = get_db()
+    deleted = 0
+    for lid in ids:
+        log = db.execute("SELECT file_path FROM verification_log WHERE id=?", (lid,)).fetchone()
+        if not log:
+            continue
+        full = os.path.join(LOG_ROOT, log['file_path'] or '')
+        try:
+            if log['file_path'] and os.path.exists(full):
+                os.remove(full)
+        except OSError:
+            pass
+        db.execute("DELETE FROM verification_log WHERE id=?", (lid,))
+        deleted += 1
+    db.commit()
+    db.close()
+    flash(f'🗑️ {deleted}개 로그를 삭제했어요.', 'success')
+    return redirect(url_for('it_verification.log_view'))
 
 
 @itverify_bp.route('/log/delete/<int:log_id>', methods=['POST'])
