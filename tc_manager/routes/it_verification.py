@@ -175,22 +175,46 @@ def parse_workitems_excel(file_storage):
 
     items = []
     for r in rows:
-        sitl = r.get(col_sitl)
-        sitl = str(sitl).strip() if sitl is not None else ''
+        sitl = _clean_sitl(r.get(col_sitl))
         if not sitl:
             continue
-        domain = r.get(col_domain)
-        domain = str(domain).strip().lower() if domain is not None else ''
         title = ''
         if col_title:
             t = r.get(col_title)
             title = str(t).strip() if t is not None else ''
-        items.append({
-            'sitl_id': sitl,
-            'title':   title,
-            'domain':  domain,
-        })
+
+        # Domain 칸에 여러 도메인이 쉼표/슬래시로 들어있을 수 있음
+        #   예) "Linux, Android"  또는  "Misc, Linux"
+        # → 각 도메인마다 SITL을 따로 등록 (그래야 도메인별 조회가 맞음)
+        raw_domain = r.get(col_domain)
+        raw_domain = str(raw_domain) if raw_domain is not None else ''
+        for dom in re.split(r'[,/;]', raw_domain):
+            dom = dom.strip().lower()
+            if not dom:
+                continue
+            items.append({
+                'sitl_id': sitl,
+                'title':   title,
+                'domain':  dom,
+            })
     return items, method, None
+
+
+def _clean_sitl(v):
+    """SITL 번호를 정수 문자열로 정리 (엑셀이 1024.0 처럼 실수로 주는 것 방지)"""
+    if v is None:
+        return ''
+    # 숫자(실수 포함)면 정수로
+    if isinstance(v, float):
+        return str(int(v))
+    if isinstance(v, int):
+        return str(v)
+    s = str(v).strip()
+    # 문자열인데 '1024.0' 형태면 정수로
+    m = re.fullmatch(r'(\d+)\.0+', s)
+    if m:
+        return m.group(1)
+    return s
 
 
 # ══════════════════════════════════════════
@@ -285,24 +309,21 @@ def workitems_delete(project):
 def log_view():
     db = get_db()
     # workitem에 등록된 프로젝트 목록
-    wi_projects = [r['project'] for r in db.execute(
+    projects = [r['project'] for r in db.execute(
         "SELECT DISTINCT project FROM workitem ORDER BY project").fetchall()]
 
-    # 프로젝트+보드 조합 만들기 (관리자 프로젝트 관리의 boards 재사용)
-    #   예) 프로젝트 idcevo_sop28v2 + 보드 720/820 → idcevo_sop28v2_720, idcevo_sop28v2_820
-    #   보드가 없는 프로젝트는 프로젝트명만 그대로 사용
-    combos = []   # [{'value': 표시·전송값, 'project': 원프로젝트, 'board': 보드}]
-    for proj in wi_projects:
+    # 프로젝트별 보드 목록 (관리자 '프로젝트 관리'의 boards 재사용)
+    #   프로젝트를 고르면 그 프로젝트의 보드가 보드 드롭다운에 채워지도록 매핑을 넘김
+    #   {프로젝트명: [보드명, ...]}
+    #   ※ workitems 프로젝트명과 관리자 프로젝트명의 대소문자가 달라도 매칭되도록
+    #     COLLATE NOCASE 로 대소문자 무시 비교
+    project_boards = {}
+    for proj in projects:
         boards = db.execute('''SELECT b.name FROM boards b
                                JOIN projects p ON b.project_id = p.id
-                               WHERE p.name = ? AND b.is_active = 1
+                               WHERE p.name = ? COLLATE NOCASE AND b.is_active = 1
                                ORDER BY b.name''', (proj,)).fetchall()
-        if boards:
-            for b in boards:
-                combos.append({'value': f"{proj}_{b['name']}",
-                               'project': proj, 'board': b['name']})
-        else:
-            combos.append({'value': proj, 'project': proj, 'board': ''})
+        project_boards[proj] = [b['name'] for b in boards]
 
     # 최근 로그 (하단 목록용) - 날짜 필터 있으면 적용
     filter_date = request.args.get('date', '').strip()
@@ -320,7 +341,8 @@ def log_view():
     db.close()
 
     return render_template('it_verification/log.html',
-                           combos=combos,
+                           projects=projects,
+                           project_boards=project_boards,
                            domains=DOMAINS, logs=logs, dates=dates,
                            filter_date=filter_date,
                            today_str=datetime.date.today().strftime('%Y-%m-%d'))
