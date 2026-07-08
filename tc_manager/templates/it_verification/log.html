@@ -39,12 +39,16 @@
 .iv-sitl-item {
     padding: 8px 12px; font-size: 13px; cursor: pointer;
     border-bottom: 1px solid #F0F0F0;
+    display: flex; align-items: center; gap: 6px;
 }
 .iv-sitl-item:hover { background: #EEF1FB; }
 .iv-sitl-item.sel {
     background: #EEF1FB; color: #1428A0; font-weight: 600;
     border-left: 3px solid #1428A0;
 }
+.iv-sitl-item.saved { color: #2E7D32; }        /* 저장된 SITL은 초록 글씨 */
+.sitl-check { color: #2E7D32; font-size: 12px; width: 12px; flex: 0 0 12px; }
+.sitl-check-empty { width: 12px; flex: 0 0 12px; }
 .iv-sitl-empty { padding: 20px 12px; font-size: 12px; color: #9CA3AF; text-align: center; }
 
 .iv-log-col { padding: 12px; display: flex; flex-direction: column; }
@@ -195,6 +199,7 @@ function onProjectChange() {
 
 function loadSitls() {
     const project = document.getElementById('sel-project').value;
+    const board   = document.getElementById('sel-board').value;
     const domain  = document.getElementById('sel-domain').value;
     const listEl  = document.getElementById('sitl-list');
     const headEl  = document.getElementById('sitl-head');
@@ -210,18 +215,24 @@ function loadSitls() {
     headEl.textContent = 'SITL 목록 (' + domain + ')';
     listEl.innerHTML = '<div class="iv-sitl-empty">불러오는 중...</div>';
 
-    fetch(`{{ url_for('it_verification.get_sitls') }}?project=${encodeURIComponent(project)}&domain=${encodeURIComponent(domain)}`)
+    fetch(`{{ url_for('it_verification.get_sitls') }}?project=${encodeURIComponent(project)}&board=${encodeURIComponent(board)}&domain=${encodeURIComponent(domain)}`)
         .then(r => r.json())
         .then(d => {
             if (!d.ok || d.sitls.length === 0) {
+                headEl.textContent = 'SITL 목록 (' + domain + ')';
                 listEl.innerHTML = '<div class="iv-sitl-empty">해당 SITL이 없어요</div>';
                 return;
             }
+            // 헤더에 전체/저장 개수 표시
+            headEl.innerHTML = 'SITL (' + domain + ') · 전체 <b>' + d.total +
+                               '</b> · 저장 <b style="color:#2E7D32;">' + d.saved + '</b>';
             listEl.innerHTML = '';
             d.sitls.forEach(s => {
                 const div = document.createElement('div');
-                div.className = 'iv-sitl-item';
-                div.textContent = s.sitl_id;
+                div.className = 'iv-sitl-item' + (s.saved ? ' saved' : '');
+                // 저장된 건 앞에 체크 표시
+                div.innerHTML = (s.saved ? '<span class="sitl-check">✔</span>' : '<span class="sitl-check-empty"></span>')
+                                + '<span>' + s.sitl_id + '</span>';
                 div.title = s.title || '';
                 div.onclick = () => pickSitl(div, s);
                 listEl.appendChild(div);
