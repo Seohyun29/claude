@@ -184,12 +184,12 @@ def parse_workitems_excel(file_storage):
             title = str(t).strip() if t is not None else ''
 
         # Domain 칸에 여러 도메인이 쉼표/슬래시로 들어있을 수 있음
-        #   예) "Linux, Android"  또는  "Misc, Linux"
+        #   예) "Linux, Android"  또는  "Misc, Linux"  또는  "Misc."
         # → 각 도메인마다 SITL을 따로 등록 (그래야 도메인별 조회가 맞음)
         raw_domain = r.get(col_domain)
         raw_domain = str(raw_domain) if raw_domain is not None else ''
         for dom in re.split(r'[,/;]', raw_domain):
-            dom = dom.strip().lower()
+            dom = _clean_domain(dom)
             if not dom:
                 continue
             items.append({
@@ -200,20 +200,36 @@ def parse_workitems_excel(file_storage):
     return items, method, None
 
 
+def _clean_domain(d):
+    """도메인 문자열 정리: 소문자 + 앞뒤 점/공백 제거 ('Misc.' → 'misc')"""
+    if d is None:
+        return ''
+    d = str(d).strip().lower()
+    d = d.strip('. \t')          # 앞뒤 점·공백 제거
+    d = re.sub(r'\s+', ' ', d)   # 중간 공백 정리 (baremetal linux 대비)
+    return d.strip()
+
+
 def _clean_sitl(v):
     """SITL 번호를 정수 문자열로 정리 (엑셀이 1024.0 처럼 실수로 주는 것 방지)"""
     if v is None:
         return ''
     # 숫자(실수 포함)면 정수로
     if isinstance(v, float):
+        # 1024.0 → '1024', 소수부가 있으면(드묾) 반올림 아닌 버림
         return str(int(v))
     if isinstance(v, int):
         return str(v)
     s = str(v).strip()
-    # 문자열인데 '1024.0' 형태면 정수로
-    m = re.fullmatch(r'(\d+)\.0+', s)
-    if m:
-        return m.group(1)
+    if not s:
+        return ''
+    # 문자열인데 숫자로 해석되면 정수화 ('1024', '1024.0', '1024.00' 모두 → '1024')
+    try:
+        f = float(s)
+        return str(int(f))
+    except ValueError:
+        pass
+    # 숫자가 아니면(예: 'SITL_1024') 그대로 둠
     return s
 
 
@@ -345,6 +361,9 @@ def log_view():
                            project_boards=project_boards,
                            domains=DOMAINS, logs=logs, dates=dates,
                            filter_date=filter_date,
+                           sel_project=request.args.get('sel_project', ''),
+                           sel_board=request.args.get('sel_board', ''),
+                           sel_domain=request.args.get('sel_domain', ''),
                            today_str=datetime.date.today().strftime('%Y-%m-%d'))
 
 
@@ -359,7 +378,8 @@ def get_sitls():
 
     db = get_db()
     rows = db.execute('''SELECT sitl_id FROM workitem
-                         WHERE project=? AND domain=?''', (project, domain)).fetchall()
+                         WHERE project=? COLLATE NOCASE AND domain=?''',
+                      (project, domain)).fetchall()
     db.close()
     # SITL_2 < SITL_10 이 되도록 숫자 기준 정렬
     def sort_key(sid):
@@ -433,16 +453,66 @@ def log_save():
     # DB 상대경로 기록 (logs/ 아래 경로)
     rel_path = os.path.relpath(full_path, LOG_ROOT)
 
-    db.execute('''INSERT INTO verification_log
-        (log_date, project, board, domain, sitl_id, title, result, content, file_path, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?)''',
-        (date_str, project, board, domain, sitl_id, '', result, content,
-         rel_path, session.get('user_id')))
-    db.commit()
-    db.close()
+    # 오늘 같은 조합(날짜+프로젝트+보드+도메인+SITL)의 로그가 있으면 → 덮어쓰기(수정)
+    existing = db.execute('''SELECT id, file_path FROM verification_log
+                             WHERE log_date=? AND project=? AND board=? AND domain=? AND sitl_id=?
+                             ORDER BY id DESC LIMIT 1''',
+                          (date_str, project, board, domain, sitl_id)).fetchone()
+    if existing:
+        # 결과가 바뀌면 파일명도 바뀜 → 옛 파일 삭제 (경로가 다를 때만)
+        old_full = os.path.join(LOG_ROOT, existing['file_path'] or '')
+        if existing['file_path'] and existing['file_path'] != rel_path and os.path.exists(old_full):
+            try:
+                os.remove(old_full)
+            except OSError:
+                pass
+        db.execute('''UPDATE verification_log
+                      SET result=?, content=?, file_path=?, created_by=?
+                      WHERE id=?''',
+                   (result, content, rel_path, session.get('user_id'), existing['id']))
+        db.commit()
+        db.close()
+        flash(f'✏️ 수정 완료: {filename}', 'success')
+    else:
+        db.execute('''INSERT INTO verification_log
+            (log_date, project, board, domain, sitl_id, title, result, content, file_path, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?)''',
+            (date_str, project, board, domain, sitl_id, '', result, content,
+             rel_path, session.get('user_id')))
+        db.commit()
+        db.close()
+        flash(f'💾 저장 완료: {filename}', 'success')
 
-    flash(f'💾 저장 완료: {filename}', 'success')
-    return redirect(url_for('it_verification.log_view', date=date_str))
+    # 저장 후에도 프로젝트·보드·도메인 선택이 유지되도록 쿼리로 넘김
+    return redirect(url_for('it_verification.log_view', date=date_str,
+                            sel_project=project, sel_board=board, sel_domain=domain))
+
+
+@itverify_bp.route('/log/get')
+@login_required
+def log_get():
+    """
+    오늘 날짜 + 프로젝트·보드·도메인·SITL 조합으로 저장된 로그가 있으면
+    내용과 결과를 돌려줌 (SITL 다시 클릭 시 수정 모드용)
+    """
+    project = request.args.get('project', '').strip()
+    board   = request.args.get('board', '').strip()
+    domain  = request.args.get('domain', '').strip().lower()
+    sitl_id = request.args.get('sitl_id', '').strip()
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    if not all([project, domain, sitl_id]):
+        return jsonify({'found': False})
+
+    db = get_db()
+    log = db.execute('''SELECT id, result, content FROM verification_log
+                        WHERE log_date=? AND project=? AND board=? AND domain=? AND sitl_id=?
+                        ORDER BY id DESC LIMIT 1''',
+                     (date_str, project, board, domain, sitl_id)).fetchone()
+    db.close()
+    if not log:
+        return jsonify({'found': False})
+    return jsonify({'found': True, 'result': log['result'], 'content': log['content'] or ''})
 
 
 @itverify_bp.route('/log/download/<int:log_id>')
