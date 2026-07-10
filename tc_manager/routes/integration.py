@@ -12,6 +12,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 integration_bp = Blueprint('integration', __name__, url_prefix='/admin/integration')
 
+# 장소당 하루 최대 IT 일정 수 — config.py 의 MAX_IT_PER_LOCATION 한 곳에서 관리
+from config import MAX_IT_PER_LOCATION
+
 
 def admin_required(f):
     @wraps(f)
@@ -440,6 +443,7 @@ def it_schedule():
                            schedules=schedules,
                            projects=projects,
                            boards_all=boards_all,
+                           max_per_day=MAX_IT_PER_LOCATION,
                            today=today)
 
 
@@ -465,8 +469,8 @@ def add_it_schedule():
         "SELECT COUNT(*) FROM it_schedule WHERE location=? AND scheduled_date=?",
         (location, scheduled_date)
     ).fetchone()[0]
-    if count >= 2:
-        flash(f'⚠️ {location}는 하루 최대 2개까지 등록 가능합니다.', 'error')
+    if count >= MAX_IT_PER_LOCATION:
+        flash(f'⚠️ {location}는 하루 최대 {MAX_IT_PER_LOCATION}개까지 등록 가능합니다.', 'error')
         db.close()
         return redirect(url_for('integration.it_schedule'))
 
@@ -516,8 +520,8 @@ def jenkins_schedule():
         "SELECT COUNT(*) FROM it_schedule WHERE location=? AND scheduled_date=?",
         (location, scheduled_date)
     ).fetchone()[0]
-    if count >= 2:
-        flash(f'⚠️ {location}는 하루 최대 2개까지 등록 가능합니다.', 'error')
+    if count >= MAX_IT_PER_LOCATION:
+        flash(f'⚠️ {location}는 하루 최대 {MAX_IT_PER_LOCATION}개까지 등록 가능합니다.', 'error')
         db.close()
         return redirect(url_for('integration.jenkins_jobs'))
 
