@@ -44,4 +44,4 @@ JENKINS_TOKEN = ''            # Jenkins API 토큰
 
 # 장소 설정
 LOCATIONS = ['DSR', 'Tera']
-MAX_IT_PER_LOCATION = 2       # 장소당 최대 IT 일정 수
+MAX_IT_PER_LOCATION = 4       # 장소당 하루 최대 IT 일정 수 (여기만 바꾸면 전체 반영)
