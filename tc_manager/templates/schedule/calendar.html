@@ -299,8 +299,8 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">장비(보드)</label>
-                        <select name="board_id" class="form-control" id="board-select">
+                        <label class="form-label">장비(보드) *</label>
+                        <select name="board_id" class="form-control" id="board-select" required>
                             <option value="">-- 선택 --</option>
                             {% for b in boards_all %}
                             <option value="{{ b.id }}" data-project="{{ b.project_id }}">
@@ -713,8 +713,8 @@
                 <option value="">-- 선택 --</option>
                 {% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
             </select></div>
-        <div class="form-group"><label class="form-label">장비(보드)</label>
-            <select name="board_id" id="eit-board" class="form-control">
+        <div class="form-group"><label class="form-label">장비(보드) *</label>
+            <select name="board_id" id="eit-board" class="form-control" required>
                 <option value="">-- 선택 --</option>
                 {% for b in boards_all %}<option value="{{ b.id }}" data-project="{{ b.project_id }}">{{ b.name }}{% if b.version %} ({{ b.version }}){% endif %}</option>{% endfor %}
             </select></div>
