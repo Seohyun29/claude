@@ -247,10 +247,13 @@ def calendar_view():
     # IT 일정 (각 발생은 하루짜리)
     for ev in it_events:
         d = datetime.date.fromisoformat(ev['scheduled_date'])
+        # 막대 라벨: "프로젝트 / 장비 (장소)"  예) IDCevo_sopv2 / v720 (테라)
         label = ev.get('project_name') or '미지정'
         if ev.get('board_name'):
             label += ' / ' + ev['board_name']
-        title = f"[{ev.get('location') or ''}] {label}"
+        if ev.get('location'):
+            label += f" ({ev['location']})"
+        title = label
         if ev.get('assignee_name'):
             title += f" - {ev['assignee_name']}"
         instances.append({
@@ -445,6 +448,10 @@ def add_it():
 
     if not project_id:
         flash('프로젝트를 선택해주세요.', 'error')
+        return redirect(url_for('schedule.calendar_view', tab='it'))
+
+    if not board_id:
+        flash('장비(보드)를 선택해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view', tab='it'))
 
     # repeat 설정 검증
@@ -747,6 +754,9 @@ def edit_it(schedule_id):
         return redirect(url_for('schedule.calendar_view'))
     if not project_id:
         flash('프로젝트를 선택해주세요.', 'error')
+        return redirect(url_for('schedule.calendar_view', tab='it'))
+    if not board_id:
+        flash('장비(보드)를 선택해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view', tab='it'))
     if repeat_type != 'none' and not repeat_end:
         flash('반복 종료일을 입력해주세요.', 'error')
