@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from database import get_db
+from config import MAX_IT_PER_LOCATION   # 장소당 하루 최대 IT 일정 수
 from functools import wraps
 import datetime
 import re
@@ -144,33 +145,6 @@ def date_range(start_str, end_str):
     return days
 
 
-def expand_repeats(schedule):
-    """
-    단일 it_schedule 레코드(sqlite3.Row)를 받아
-    repeat_type에 따라 날짜 목록을 확장하여 반환.
-    반환값: [{'id':..,'date':..,'project_name':..,...}, ...]
-    """
-    s = dict(schedule)
-    base_date  = datetime.date.fromisoformat(s['scheduled_date'])
-    repeat     = s.get('repeat_type') or 'none'
-    repeat_end = s.get('repeat_end')
-
-    if repeat == 'none' or not repeat_end:
-        return [s]
-
-    end_date = datetime.date.fromisoformat(repeat_end)
-    delta = datetime.timedelta(weeks=1 if repeat == 'weekly' else 2)
-
-    items = []
-    cur = base_date
-    while cur <= end_date:
-        item = dict(s)
-        item['scheduled_date'] = cur.strftime('%Y-%m-%d')
-        items.append(item)
-        cur += delta
-    return items
-
-
 # ──────────────────────────────────────────
 #  메인 캘린더 뷰
 # ──────────────────────────────────────────
@@ -202,24 +176,19 @@ def calendar_view():
 
     db = get_db()
 
-    # IT 일정 조회 (해당 월 포함 가능성 있는 것 전부)
-    raw_it = db.execute('''
+    # IT 일정 조회
+    #  반복 일정도 등록 시 날짜별 레코드로 펼쳐 저장하므로(B 방식),
+    #  그 달 범위의 레코드를 그대로 가져오면 된다. (별도 전개 불필요)
+    it_events = db.execute('''
         SELECT s.*, p.name as project_name, b.name as board_name,
                u.name as assignee_name
         FROM it_schedule s
         LEFT JOIN projects p   ON s.project_id  = p.id
         LEFT JOIN boards   b   ON s.board_id     = b.id
         LEFT JOIN users    u   ON s.assignee_id  = u.id
-        WHERE s.scheduled_date <= ? AND (s.repeat_end >= ? OR s.repeat_end IS NULL)
-          AND s.scheduled_date >= date(?, '-3 months')
-    ''', (last_str, first_str, first_str)).fetchall()
-
-    # 반복 일정 전개
-    it_events = []
-    for row in raw_it:
-        for item in expand_repeats(row):
-            if first_str <= item['scheduled_date'] <= last_str:
-                it_events.append(item)
+        WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
+    ''', (first_str, last_str)).fetchall()
+    it_events = [dict(r) for r in it_events]
 
     # 휴가 조회
     vacations_raw = db.execute('''
@@ -251,14 +220,16 @@ def calendar_view():
         label = ev.get('project_name') or '미지정'
         if ev.get('board_name'):
             label += ' / ' + ev['board_name']
-        if ev.get('location'):
-            label += f" ({ev['location']})"
+        loc = ev.get('location') or ''
+        if loc:
+            label += f" ({loc})"
         title = label
         if ev.get('assignee_name'):
             title += f" - {ev['assignee_name']}"
         instances.append({
             'id': ev['id'], 'kind': 'it', 'start': d, 'end': d,
             'label': '🔵 ' + label, 'title': title,
+            'loc': loc,   # 장소별 색상 구분용 (DSR / Tera 등)
         })
 
     # 휴가
@@ -459,18 +430,63 @@ def add_it():
         flash('반복 종료일을 입력해주세요.', 'error')
         return redirect(url_for('schedule.calendar_view'))
 
+    # ── 반복 일정을 날짜별 레코드로 펼쳐서 저장 (B 방식) ──
+    #  반복이면 시작일~종료일 사이의 각 날짜마다 레코드를 하나씩 만든다.
+    #  첫 레코드가 '원본'이 되고, 나머지는 parent_id 로 원본을 가리킨다.
+    #  → 조회가 단순해지고(날짜만 비교), 특정 날짜만 수정/삭제도 가능해진다.
+    start = datetime.date.fromisoformat(scheduled_date)
+    if repeat_type in ('weekly', 'biweekly') and repeat_end:
+        end = datetime.date.fromisoformat(repeat_end)
+        step = datetime.timedelta(weeks=1 if repeat_type == 'weekly' else 2)
+        dates = []
+        cur = start
+        while cur <= end:
+            dates.append(cur)
+            cur += step
+    else:
+        dates = [start]
+
     db = get_db()
-    db.execute('''
-        INSERT INTO it_schedule
-        (project_id, board_id, location, scheduled_date,
-         assignee_id, repeat_type, repeat_end, notes, jenkins_job, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-    ''', (project_id, board_id, location, scheduled_date,
-          assignee_id, repeat_type, repeat_end, notes, jenkins_job))
+
+    # 장소별 하루 최대 개수 제한 검사 (config.MAX_IT_PER_LOCATION)
+    #  제한에 걸리는 날짜는 건너뛰고, 나중에 사용자에게 알려준다.
+    inserted, skipped = 0, []
+    parent_id = None
+    for d in dates:
+        d_str = d.strftime('%Y-%m-%d')
+        cnt = db.execute(
+            "SELECT COUNT(*) FROM it_schedule WHERE location=? AND scheduled_date=?",
+            (location, d_str)).fetchone()[0]
+        if cnt >= MAX_IT_PER_LOCATION:
+            skipped.append(d_str)
+            continue
+
+        cur_repeat = repeat_type if parent_id is None else 'none'
+        cur = db.execute('''
+            INSERT INTO it_schedule
+            (project_id, board_id, location, scheduled_date,
+             assignee_id, repeat_type, repeat_end, notes, jenkins_job, status, parent_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        ''', (project_id, board_id, location, d_str,
+              assignee_id, cur_repeat, repeat_end if parent_id is None else None,
+              notes, jenkins_job, parent_id))
+        if parent_id is None:
+            parent_id = cur.lastrowid     # 첫 레코드를 원본으로 삼음
+        inserted += 1
+
     db.commit()
     db.close()
 
-    flash('✅ IT 일정이 등록되었습니다.', 'success')
+    if inserted == 0:
+        flash(f'⚠️ {location}의 해당 날짜는 이미 하루 최대 '
+              f'{MAX_IT_PER_LOCATION}개가 등록되어 있어요.', 'error')
+        return redirect(url_for('schedule.calendar_view', tab='it'))
+
+    msg = f'✅ IT 일정 {inserted}건이 등록되었습니다.'
+    if skipped:
+        msg += f' (정원 초과로 {len(skipped)}일 제외: {", ".join(skipped[:3])}' \
+               + ('…)' if len(skipped) > 3 else ')')
+    flash(msg, 'success')
     y, m = scheduled_date[:4], int(scheduled_date[5:7])
     return redirect(url_for('schedule.calendar_view', year=y, month=m))
 
@@ -481,6 +497,7 @@ def add_it():
 @schedule_bp.route('/it/delete/<int:schedule_id>', methods=['POST'])
 @login_required
 def delete_it(schedule_id):
+    """이 날짜의 일정 하나만 삭제"""
     year  = request.form.get('year',  datetime.date.today().year,  type=int)
     month = request.form.get('month', datetime.date.today().month, type=int)
 
@@ -490,6 +507,36 @@ def delete_it(schedule_id):
     db.close()
 
     flash('🗑️ IT 일정이 삭제되었습니다.', 'success')
+    return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='it'))
+
+
+@schedule_bp.route('/it/delete_series/<int:schedule_id>', methods=['POST'])
+@login_required
+def delete_it_series(schedule_id):
+    """
+    반복 일정 전체 삭제.
+    parent_id 로 묶인 그룹(원본 + 자식들)을 한 번에 지운다.
+    """
+    year  = request.form.get('year',  datetime.date.today().year,  type=int)
+    month = request.form.get('month', datetime.date.today().month, type=int)
+
+    db = get_db()
+    row = db.execute("SELECT id, parent_id FROM it_schedule WHERE id=?",
+                     (schedule_id,)).fetchone()
+    if not row:
+        db.close()
+        flash('일정을 찾을 수 없어요.', 'error')
+        return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='it'))
+
+    # 그룹의 기준 id = 원본 id (자식이면 parent_id, 원본이면 자기 id)
+    root_id = row['parent_id'] or row['id']
+    cur = db.execute("DELETE FROM it_schedule WHERE id=? OR parent_id=?",
+                     (root_id, root_id))
+    deleted = cur.rowcount
+    db.commit()
+    db.close()
+
+    flash(f'🗑️ 반복 일정 {deleted}건이 모두 삭제되었습니다.', 'success')
     return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='it'))
 
 
