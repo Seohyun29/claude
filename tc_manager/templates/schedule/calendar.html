@@ -105,9 +105,9 @@
 .cal-bar small { font-weight: 400; opacity: .8; }
 /* 종류별 색 */
 .bar-it  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }
-/* 장소별 색상 구분 (IT 일정) */
-.it-loc-dsr  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }  /* DSR: 파랑 */
-.it-loc-tera { background: #FBEEF4; color: #A01452; border-left: 3px solid #A01452; }  /* Tera: 자주 */
+/* 장소별 색상 구분 (IT 일정) — bar-it 보다 뒤에 두어 우선 적용 */
+.cal-bar.it-loc-dsr  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }  /* DSR: 파랑 */
+.cal-bar.it-loc-tera { background: #FBEEF4; color: #A01452; border-left: 3px solid #A01452; }  /* Tera: 자주 */
 .bar-vac { background: #FFF3E0; color: #E65100; border-left: 3px solid #FF9F0A; }
 .bar-etc { background: #EAF3DE; color: #3B6D11; border-left: 3px solid #639922; }
 /* 주 경계로 잘린 막대: 잘린 쪽 모서리 각지게 + 좌측 잘리면 컬러바 제거 */
