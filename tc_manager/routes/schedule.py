@@ -341,6 +341,7 @@ def calendar_view():
                     'kind':     inst['kind'],
                     'label':    inst['label'],
                     'title':    inst['title'],
+                    'loc':      inst.get('loc', ''),   # 장소별 색상용
                     'col_start': cs,
                     'col_end':   ce,
                     'is_start': inst['start'] >= week_start,  # 진짜 시작이 이 주 안
