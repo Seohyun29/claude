@@ -105,6 +105,9 @@
 .cal-bar small { font-weight: 400; opacity: .8; }
 /* 종류별 색 */
 .bar-it  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }
+/* 장소별 색상 구분 (IT 일정) */
+.it-loc-dsr  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }  /* DSR: 파랑 */
+.it-loc-tera { background: #FBEEF4; color: #A01452; border-left: 3px solid #A01452; }  /* Tera: 자주 */
 .bar-vac { background: #FFF3E0; color: #E65100; border-left: 3px solid #FF9F0A; }
 .bar-etc { background: #EAF3DE; color: #3B6D11; border-left: 3px solid #639922; }
 /* 주 경계로 잘린 막대: 잘린 쪽 모서리 각지게 + 좌측 잘리면 컬러바 제거 */
@@ -197,7 +200,8 @@
     </div>
     <a href="{{ url_for('schedule.calendar_view') }}" class="btn-today">오늘</a>
     <div class="legend">
-        <div class="legend-item"><span class="legend-dot dot-it"></span>IT 일정</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#1428A0;"></span>IT · DSR</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#A01452;"></span>IT · Tera</div>
         <div class="legend-item"><span class="legend-dot dot-vac"></span>휴가</div>
         <div class="legend-item"><span class="legend-dot dot-etc"></span>기타</div>
     </div>
@@ -242,6 +246,7 @@
             <div class="cal-week-bars">
                 {% for bar in week.bars %}
                 <div class="cal-bar bar-{{ bar.kind }}
+                    {% if bar.kind == 'it' and bar.loc %}it-loc-{{ bar.loc|lower }}{% endif %}
                     {% if not bar.is_start %}no-left{% endif %}
                     {% if not bar.is_end %}no-right{% endif %}"
                     style="grid-column: {{ bar.col_start + 1 }} / {{ bar.col_end + 2 }};
