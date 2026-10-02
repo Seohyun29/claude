@@ -233,13 +233,15 @@ def calendar_view():
     # IT 일정 (각 발생은 하루짜리)
     for ev in it_events:
         d = datetime.date.fromisoformat(ev['scheduled_date'])
-        # 막대 라벨: "프로젝트 / 장비 (장소)"  예) IDCevo_sopv2 / v720 (테라)
-        label = ev.get('project_name') or '미지정'
-        if ev.get('board_name'):
-            label += ' / ' + ev['board_name']
+        # 막대 라벨: "장소 프로젝트 장비"  예) 테라 IDCevo_sopv2 v720
         loc = ev.get('location') or ''
+        parts = []
         if loc:
-            label += f" ({loc})"
+            parts.append(loc)
+        parts.append(ev.get('project_name') or '미지정')
+        if ev.get('board_name'):
+            parts.append(ev['board_name'])
+        label = ' '.join(parts)
         title = label
         if ev.get('assignee_name'):
             title += f" - {ev['assignee_name']}"
