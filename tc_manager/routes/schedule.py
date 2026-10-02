@@ -137,8 +137,12 @@ def init_schedule_db():
     # etc_event 마이그레이션
     etc_cols = [r[1] for r in c.execute("PRAGMA table_info(etc_event)").fetchall()]
     for col, col_type in [
-        ('end_date', 'TEXT'),
-        ('all_day',  'INTEGER DEFAULT 0'),
+        ('end_date',    'TEXT'),
+        ('all_day',     'INTEGER DEFAULT 0'),
+        ('repeat_type', "TEXT DEFAULT 'none'"),  # none / weekly / biweekly
+        ('repeat_end',  'TEXT'),                 # 반복 종료일
+        ('parent_id',   'INTEGER'),              # 반복 원본 id (자식 레코드용)
+        ('notes',       'TEXT'),                 # 메모
     ]:
         if col not in etc_cols:
             c.execute(f"ALTER TABLE etc_event ADD COLUMN {col} {col_type}")
@@ -291,6 +295,8 @@ def calendar_view():
             title = e['title']
         if e['location']:
             title += f" @ {e['location']}"
+        if e['notes']:
+            title += f" · {e['notes']}"
         instances.append({
             'id': e['id'], 'kind': 'etc', 'start': s, 'end': end,
             'label': label, 'title': title,
@@ -677,6 +683,7 @@ def add_etc():
     start_time = combine_time(request.form, 'etc_start_time') or None
     end_time   = combine_time(request.form, 'etc_end_time') or None
     location   = request.form.get('etc_location', '').strip()
+    notes      = request.form.get('etc_notes', '').strip()
 
     if not title or not event_date:
         flash('제목과 날짜를 입력해주세요.', 'error')
@@ -708,18 +715,55 @@ def add_etc():
             flash('종료 시간이 시작 시간보다 빨라요.', 'error')
             return redirect(url_for('schedule.calendar_view', tab='etc'))
 
+    # ── 반복 설정 (IT 일정과 동일하게 날짜별 레코드로 펼쳐 저장) ──
+    #  '이틀 이상' 일정은 반복과 함께 쓰지 않는다 (기간 일정은 반복 없음)
+    repeat_type = request.form.get('etc_repeat_type', 'none')
+    repeat_end  = request.form.get('etc_repeat_end', '').strip() or None
+    if is_multi:
+        repeat_type, repeat_end = 'none', None
+    if repeat_type != 'none' and not repeat_end:
+        flash('반복 종료일을 입력해주세요.', 'error')
+        return redirect(url_for('schedule.calendar_view', tab='etc'))
+
+    start = datetime.date.fromisoformat(event_date)
+    if repeat_type in ('weekly', 'biweekly') and repeat_end:
+        rend = datetime.date.fromisoformat(repeat_end)
+        if rend < start:
+            flash('반복 종료일이 시작일보다 빠릅니다.', 'error')
+            return redirect(url_for('schedule.calendar_view', tab='etc'))
+        step = datetime.timedelta(weeks=1 if repeat_type == 'weekly' else 2)
+        dates, cur = [], start
+        while cur <= rend:
+            dates.append(cur)
+            cur += step
+    else:
+        dates = [start]
+
     db = get_db()
-    db.execute(
-        "INSERT INTO etc_event "
-        "(title, event_date, end_date, all_day, start_time, end_time, location, created_by) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, event_date, end_date, all_day, start_time, end_time, location,
-         session.get('user_id'))
-    )
+    parent_id = None
+    for d in dates:
+        d_str = d.strftime('%Y-%m-%d')
+        # 반복 일정은 하루짜리 → 종료일 = 해당 날짜
+        cur_end = end_date if len(dates) == 1 else d_str
+        cur_repeat = repeat_type if parent_id is None else 'none'
+        cur = db.execute(
+            "INSERT INTO etc_event "
+            "(title, event_date, end_date, all_day, start_time, end_time, location, "
+            " created_by, repeat_type, repeat_end, parent_id, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (title, d_str, cur_end, all_day, start_time, end_time, location,
+             session.get('user_id'), cur_repeat,
+             repeat_end if parent_id is None else None, parent_id, notes)
+        )
+        if parent_id is None:
+            parent_id = cur.lastrowid       # 첫 레코드를 원본으로
     db.commit()
     db.close()
 
-    flash('✅ 기타 일정이 등록되었습니다.', 'success')
+    if len(dates) > 1:
+        flash(f'✅ 기타 일정 {len(dates)}건이 등록되었습니다.', 'success')
+    else:
+        flash('✅ 기타 일정이 등록되었습니다.', 'success')
     y, m = event_date[:4], int(event_date[5:7])
     return redirect(url_for('schedule.calendar_view', year=y, month=m, tab='etc'))
 
@@ -739,6 +783,30 @@ def delete_etc(event_id):
     db.close()
 
     flash('🗑️ 기타 일정이 삭제되었습니다.', 'success')
+    return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='etc'))
+
+
+@schedule_bp.route('/etc/delete_series/<int:event_id>', methods=['POST'])
+@login_required
+def delete_etc_series(event_id):
+    """반복으로 등록된 기타 일정 전체 삭제 (parent_id 그룹)"""
+    year  = request.form.get('year',  datetime.date.today().year,  type=int)
+    month = request.form.get('month', datetime.date.today().month, type=int)
+
+    db = get_db()
+    row = db.execute("SELECT id, parent_id FROM etc_event WHERE id=?", (event_id,)).fetchone()
+    if not row:
+        db.close()
+        flash('일정을 찾을 수 없어요.', 'error')
+        return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='etc'))
+
+    root_id = row['parent_id'] or row['id']
+    cur = db.execute("DELETE FROM etc_event WHERE id=? OR parent_id=?", (root_id, root_id))
+    deleted = cur.rowcount
+    db.commit()
+    db.close()
+
+    flash(f'🗑️ 반복 일정 {deleted}건이 모두 삭제되었습니다.', 'success')
     return redirect(url_for('schedule.calendar_view', year=year, month=month, tab='etc'))
 
 
@@ -913,6 +981,7 @@ def edit_etc(event_id):
     start_time = combine_time(request.form, 'etc_start_time') or None
     end_time   = combine_time(request.form, 'etc_end_time') or None
     location   = request.form.get('etc_location', '').strip()
+    notes      = request.form.get('etc_notes', '').strip()
 
     if not title or not event_date:
         flash('제목과 날짜를 입력해주세요.', 'error')
@@ -930,9 +999,11 @@ def edit_etc(event_id):
 
     db = get_db()
     db.execute('''UPDATE etc_event SET
-        title=?, event_date=?, end_date=?, all_day=?, start_time=?, end_time=?, location=?
+        title=?, event_date=?, end_date=?, all_day=?, start_time=?, end_time=?,
+        location=?, notes=?
         WHERE id=?''',
-        (title, event_date, end_date, all_day, start_time, end_time, location, event_id))
+        (title, event_date, end_date, all_day, start_time, end_time,
+         location, notes, event_id))
     db.commit()
     db.close()
 
