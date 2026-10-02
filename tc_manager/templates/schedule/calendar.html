@@ -316,13 +316,13 @@
         </div>
         <div class="card-body" id="form-body">
             <div class="form-tabs">
-                <button class="form-tab active" onclick="switchForm('it-form', this)">🔵 IT</button>
-                <button class="form-tab" onclick="switchForm('vac-form', this)">🟡 휴가</button>
-                <button class="form-tab" onclick="switchForm('etc-form', this)">🟢 기타</button>
+                <button class="form-tab {% if active_tab == 'it' %}active{% endif %}" onclick="switchForm('it-form', this)">🔵 IT</button>
+                <button class="form-tab {% if active_tab == 'vac' %}active{% endif %}" onclick="switchForm('vac-form', this)">🟡 휴가</button>
+                <button class="form-tab {% if active_tab == 'etc' %}active{% endif %}" onclick="switchForm('etc-form', this)">🟢 기타</button>
             </div>
 
             <!-- IT 일정 등록 폼 -->
-            <div id="it-form" class="form-pane active">
+            <div id="it-form" class="form-pane {% if active_tab == 'it' %}active{% endif %}">
                 <form method="POST" action="{{ url_for('schedule.add_it') }}"
                       id="it-add-form" onsubmit="return validateItForm();">
                     <div class="form-group">
@@ -376,15 +376,15 @@
                         <input type="text" name="notes" class="form-control" placeholder="특이사항 등">
                     </div>
                     <div style="display:flex;gap:8px;">
+                        <button type="submit" class="btn btn-primary" style="flex:1;">📅 등록</button>
                         <button type="button" class="btn btn-secondary" style="flex:0 0 auto;"
                                 onclick="resetItForm()">↺ 초기화</button>
-                        <button type="submit" class="btn btn-primary" style="flex:1;">📅 등록</button>
                     </div>
                 </form>
             </div>
 
             <!-- 휴가 등록 폼 -->
-            <div id="vac-form" class="form-pane">
+            <div id="vac-form" class="form-pane {% if active_tab == 'vac' %}active{% endif %}">
                 <form method="POST" action="{{ url_for('schedule.add_vacation') }}">
                     <div class="form-group">
                         <label class="form-label">팀원 *</label>
@@ -447,7 +447,7 @@
             </div>
 
             <!-- 기타 일정 등록 폼 (회의/세미나 등) -->
-            <div id="etc-form" class="form-pane">
+            <div id="etc-form" class="form-pane {% if active_tab == 'etc' %}active{% endif %}">
                 <form method="POST" action="{{ url_for('schedule.add_etc') }}">
                     <div class="form-group">
                         <label class="form-label">제목 *</label>
@@ -511,19 +511,19 @@
         <!-- 플래시 메시지 자리 (base.html의 메시지를 JS가 여기로 이동) -->
         <div id="flash-slot"></div>
         <div class="list-tabs">
-            <button class="list-tab active" id="tab-btn-it" onclick="switchList('it-list', this)">
+            <button class="list-tab {% if active_tab == 'it' %}active{% endif %}" id="tab-btn-it" onclick="switchList('it-list', this)">
                 🔵 IT 일정 ({{ it_list|length }})
             </button>
-            <button class="list-tab" id="tab-btn-vac" onclick="switchList('vac-list', this)">
+            <button class="list-tab {% if active_tab == 'vac' %}active{% endif %}" id="tab-btn-vac" onclick="switchList('vac-list', this)">
                 🟡 휴가 ({{ vacation_list|length }})
             </button>
-            <button class="list-tab" id="tab-btn-etc" onclick="switchList('etc-list', this)">
+            <button class="list-tab {% if active_tab == 'etc' %}active{% endif %}" id="tab-btn-etc" onclick="switchList('etc-list', this)">
                 🟢 기타 ({{ etc_list|length }})
             </button>
         </div>
 
         <!-- IT 일정 리스트 -->
-        <div id="it-list" class="list-pane active">
+        <div id="it-list" class="list-pane {% if active_tab == 'it' %}active{% endif %}">
             {% if it_list %}
             <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='it') }}"
                   id="it-bulk-form" onsubmit="return confirmBulk('it')">
@@ -602,7 +602,7 @@
         </div>
 
         <!-- 휴가 리스트 -->
-        <div id="vac-list" class="list-pane">
+        <div id="vac-list" class="list-pane {% if active_tab == 'vac' %}active{% endif %}">
             {% if vacation_list %}
             <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='vac') }}"
                   id="vac-bulk-form" onsubmit="return confirmBulk('vac')">
@@ -664,7 +664,7 @@
         </div>
 
         <!-- 기타 일정 리스트 -->
-        <div id="etc-list" class="list-pane">
+        <div id="etc-list" class="list-pane {% if active_tab == 'etc' %}active{% endif %}">
             {% if etc_list %}
             <form method="POST" action="{{ url_for('schedule.bulk_delete', kind='etc') }}"
                   id="etc-bulk-form" onsubmit="return confirmBulk('etc')">
