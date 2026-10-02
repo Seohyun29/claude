@@ -37,6 +37,23 @@ def fmt_time_short(t):
     return t
 
 
+def combine_time(form, prefix):
+    """
+    시/분 분리 드롭다운 값을 'HH:MM' 으로 합친다.
+      prefix='start_time' → form의 start_time_h, start_time_m 를 읽음
+    둘 다 없으면 '' 반환.
+    """
+    h = (form.get(prefix + '_h') or '').strip()
+    m = (form.get(prefix + '_m') or '').strip()
+    if not h and not m:
+        return ''
+    if not h:
+        h = '00'
+    if not m:
+        m = '00'
+    return f"{int(h):02d}:{int(m):02d}"
+
+
 def vacation_chip_label(leave_type, short, start_time, end_time):
     """캘린더 칩에 표시할 라벨: 반차류는 '09-13', 연차는 '연차'"""
     if leave_type != 'full' and start_time and end_time:
@@ -228,7 +245,7 @@ def calendar_view():
             title += f" - {ev['assignee_name']}"
         instances.append({
             'id': ev['id'], 'kind': 'it', 'start': d, 'end': d,
-            'label': '🔵 ' + label, 'title': title,
+            'label': label, 'title': title,   # 앞의 점은 CSS(::before)로 장소색 표시
             'loc': loc,   # 장소별 색상 구분용 (DSR / Tera 등)
         })
 
@@ -256,9 +273,13 @@ def calendar_view():
     for e in etc_raw:
         s = datetime.date.fromisoformat(e['event_date'])
         end = datetime.date.fromisoformat(e['end_date']) if e['end_date'] else s
-        if e['all_day']:
-            label = f"🟢 {e['title']} 하루종일"
-            title = f"{e['title']} · 하루종일"
+        # 캘린더 라벨 규칙
+        #   · 하루종일 체크 또는 이틀 이상 일정 → 일정 이름만
+        #   · 하루짜리 + 시간이 입력된 경우   → 이름 뒤에 시간 표시 (예: 회의 9-10)
+        is_multi_day = (end > s)
+        if e['all_day'] or is_multi_day:
+            label = f"🟢 {e['title']}"
+            title = f"{e['title']} · 하루종일" if e['all_day'] else e['title']
         elif e['start_time'] and e['end_time']:
             tlabel = f"{fmt_time_short(e['start_time'])}-{fmt_time_short(e['end_time'])}"
             label = f"🟢 {e['title']} {tlabel}"
@@ -566,8 +587,8 @@ def add_vacation():
     end_date   = request.form.get('end_date', '').strip()
     leave_type = request.form.get('leave_type', 'full')
     is_multi   = request.form.get('vac_multi') == '1'
-    start_time = request.form.get('start_time', '').strip()
-    end_time   = request.form.get('end_time', '').strip()
+    start_time = combine_time(request.form, 'start_time')
+    end_time   = combine_time(request.form, 'end_time')
 
     if not user_id or not start_date:
         flash('이름과 날짜를 입력해주세요.', 'error')
@@ -649,8 +670,8 @@ def add_etc():
     is_multi   = request.form.get('etc_multi') == '1'
     end_date   = request.form.get('etc_end_date', '').strip() or None
     all_day    = 1 if request.form.get('all_day') else 0
-    start_time = request.form.get('etc_start_time', '').strip() or None
-    end_time   = request.form.get('etc_end_time', '').strip() or None
+    start_time = combine_time(request.form, 'etc_start_time') or None
+    end_time   = combine_time(request.form, 'etc_end_time') or None
     location   = request.form.get('etc_location', '').strip()
 
     if not title or not event_date:
@@ -840,8 +861,8 @@ def edit_vacation(vacation_id):
     start_date = request.form.get('start_date', '').strip()
     end_date   = request.form.get('end_date', '').strip()
     leave_type = request.form.get('leave_type', 'full')
-    start_time = request.form.get('start_time', '').strip()
-    end_time   = request.form.get('end_time', '').strip()
+    start_time = combine_time(request.form, 'start_time')
+    end_time   = combine_time(request.form, 'end_time')
 
     if not user_id or not start_date:
         db.close()
@@ -885,8 +906,8 @@ def edit_etc(event_id):
     event_date = request.form.get('event_date', '').strip()
     end_date   = request.form.get('etc_end_date', '').strip() or None
     all_day    = 1 if request.form.get('all_day') else 0
-    start_time = request.form.get('etc_start_time', '').strip() or None
-    end_time   = request.form.get('etc_end_time', '').strip() or None
+    start_time = combine_time(request.form, 'etc_start_time') or None
+    end_time   = combine_time(request.form, 'etc_end_time') or None
     location   = request.form.get('etc_location', '').strip()
 
     if not title or not event_date:
