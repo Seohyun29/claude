@@ -2,6 +2,34 @@
 {% block title %}일정 캘린더{% endblock %}
 {% block page_title %}📅 일정 캘린더{% endblock %}
 
+{#
+  시/분 분리 드롭다운 매크로
+    name_prefix: 필드 이름 접두사 (예: vac_start → vac_start_h, vac_start_m)
+    sel_h, sel_m: 기본 선택 값 (정수)
+    분은 30분 단위 (00, 30)
+#}
+{#
+  시/분 분리 드롭다운 매크로
+    name_prefix: 필드 이름 접두사 (예: vac_start → vac_start_h, vac_start_m)
+    sel_h, sel_m: 기본 선택 값 (정수)
+    step: 분 단위 (기본 30 → 00,30 / 10 을 주면 00,10,20,30,40,50)
+#}
+{% macro time_select(name_prefix, id_prefix, sel_h, sel_m, step=30) %}
+<div style="display:flex;gap:4px;align-items:center;">
+    <select name="{{ name_prefix }}_h" id="{{ id_prefix }}-h" class="form-control" style="flex:1;">
+        {% for h in range(0, 24) %}
+        <option value="{{ '%02d'|format(h) }}" {% if h == sel_h %}selected{% endif %}>{{ '%02d'|format(h) }}</option>
+        {% endfor %}
+    </select>
+    <span style="color:#888;">:</span>
+    <select name="{{ name_prefix }}_m" id="{{ id_prefix }}-m" class="form-control" style="flex:1;">
+        {% for m in range(0, 60, step) %}
+        <option value="{{ '%02d'|format(m) }}" {% if m == sel_m %}selected{% endif %}>{{ '%02d'|format(m) }}</option>
+        {% endfor %}
+    </select>
+</div>
+{% endmacro %}
+
 {% block content %}
 <style>
 /* ── 캘린더 헤더 ── */
@@ -27,6 +55,12 @@
 .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--gray-mid); }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot-it  { background: #1428A0; }
+/* 페이지 나누기 버튼 */
+.pg-btn { min-width:30px; height:30px; padding:0 8px; border:1px solid var(--border);
+          background:#fff; border-radius:6px; font-size:13px; cursor:pointer; color:#444; }
+.pg-btn:hover:not(:disabled) { background:#EEF1FB; }
+.pg-btn:disabled { opacity:.4; cursor:default; }
+.pg-btn.pg-active { background:#1428A0; color:#fff; border-color:#1428A0; font-weight:600; }
 .dot-vac { background: #FF9F0A; }
 .dot-etc { background: #639922; }
 
@@ -106,8 +140,8 @@
 /* 종류별 색 */
 .bar-it  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }
 /* 장소별 색상 구분 (IT 일정) — bar-it 보다 뒤에 두어 우선 적용 */
-.cal-bar.it-loc-dsr  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }  /* DSR: 파랑 */
-.cal-bar.it-loc-tera { background: #FBEEF4; color: #A01452; border-left: 3px solid #A01452; }  /* Tera: 자주 */
+.cal-bar.it-loc-dsr  { background: #E6F1FB; color: #0C447C; border-left: 3px solid #185FA5; }  /* DSR: 파랑 */
+.cal-bar.it-loc-tera { background: #FAECE7; color: #712B13; border-left: 3px solid #993C1D; }  /* Tera: 주황 */
 .bar-vac { background: #FFF3E0; color: #E65100; border-left: 3px solid #FF9F0A; }
 .bar-etc { background: #EAF3DE; color: #3B6D11; border-left: 3px solid #639922; }
 /* 주 경계로 잘린 막대: 잘린 쪽 모서리 각지게 + 좌측 잘리면 컬러바 제거 */
@@ -200,8 +234,8 @@
     </div>
     <a href="{{ url_for('schedule.calendar_view') }}" class="btn-today">오늘</a>
     <div class="legend">
-        <div class="legend-item"><span class="legend-dot" style="background:#1428A0;"></span>IT · DSR</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#A01452;"></span>IT · Tera</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#185FA5;"></span>IT · DSR</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#993C1D;"></span>IT · Tera</div>
         <div class="legend-item"><span class="legend-dot dot-vac"></span>휴가</div>
         <div class="legend-item"><span class="legend-dot dot-etc"></span>기타</div>
     </div>
@@ -328,12 +362,6 @@
                         <input type="date" name="repeat_end" class="form-control" id="repeat-end">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Jenkins Job (선택)</label>
-                        <input type="text" name="jenkins_job" class="form-control"
-                               placeholder="예: /job/ProjectA/daily"
-                               style="font-family:monospace;font-size:12px;">
-                    </div>
-                    <div class="form-group">
                         <label class="form-label">메모</label>
                         <input type="text" name="notes" class="form-control" placeholder="특이사항 등">
                     </div>
@@ -395,22 +423,12 @@
                         <div style="display:flex;gap:8px;align-items:flex-end;">
                             <div style="flex:1;">
                                 <label class="form-label" style="font-size:11px;">🕐 시작</label>
-                                <select name="start_time" id="vac-stime" class="form-control">
-                                    {% for h in range(8, 20) %}
-                                    <option value="{{ '%02d:00'|format(h) }}"
-                                        {% if h == 9 %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
-                                    {% endfor %}
-                                </select>
+                                {{ time_select('start_time', 'vac-stime', 9, 0) }}
                             </div>
                             <span style="padding-bottom:8px;color:#888;">~</span>
                             <div style="flex:1;">
                                 <label class="form-label" style="font-size:11px;">🕐 종료</label>
-                                <select name="end_time" id="vac-etime" class="form-control">
-                                    {% for h in range(8, 20) %}
-                                    <option value="{{ '%02d:00'|format(h) }}"
-                                        {% if h == 13 %}selected{% endif %}>{{ '%02d:00'|format(h) }}</option>
-                                    {% endfor %}
-                                </select>
+                                {{ time_select('end_time', 'vac-etime', 13, 0) }}
                             </div>
                         </div>
                     </div>
@@ -452,11 +470,9 @@
                         <div class="form-group" id="etc-time-group">
                             <label class="form-label">시간</label>
                             <div style="display:flex;gap:8px;align-items:center;">
-                                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_start_time" class="form-control time-input"
-                                       id="etc-stime" value="09:00" style="flex:1;">
+                                <div style="flex:1;">{{ time_select('etc_start_time', 'etc-stime', 9, 0, step=10) }}</div>
                                 <span style="color:#888;">~</span>
-                                <input type="text" pattern="[0-9]{1,2}:[0-5][0-9]" placeholder="09:00" autocomplete="off" name="etc_end_time" class="form-control time-input"
-                                       id="etc-etime" value="10:00" style="flex:1;">
+                                <div style="flex:1;">{{ time_select('etc_end_time', 'etc-etime', 10, 0, step=10) }}</div>
                             </div>
                         </div>
                         <div class="form-group">
@@ -520,15 +536,20 @@
                 </thead>
                 <tbody>
                 {% for ev in it_list %}
-                <tr {% if ev.scheduled_date == today_str %}style="background:#EEF1FB;"{% endif %}>
+                <tr class="it-row" {% if ev.scheduled_date == today_str %}style="background:#EEF1FB;"{% endif %}>
                     <td style="text-align:center;">
                         <input type="checkbox" name="ids" value="{{ ev.id }}" class="row-chk-it">
                     </td>
                     <td style="white-space:nowrap;font-weight:600;">{{ ev.scheduled_date }}</td>
                     <td>
-                        <span style="background:#F2F2F7;padding:2px 8px;border-radius:6px;font-size:12px;">
-                            📍 {{ ev.location or '-' }}
-                        </span>
+                        {% set loc = ev.location or '' %}
+                        {% if loc|lower == 'dsr' %}
+                        <span style="background:#E6F1FB;color:#0C447C;padding:2px 8px;border-radius:6px;font-size:12px;">📍 {{ loc }}</span>
+                        {% elif loc|lower == 'tera' %}
+                        <span style="background:#FAECE7;color:#712B13;padding:2px 8px;border-radius:6px;font-size:12px;">📍 {{ loc }}</span>
+                        {% else %}
+                        <span style="background:#F2F2F7;padding:2px 8px;border-radius:6px;font-size:12px;">📍 {{ loc or '-' }}</span>
+                        {% endif %}
                     </td>
                     <td style="font-weight:600;">{{ ev.project_name or '-' }}</td>
                     <td class="text-muted">{{ ev.board_name or '-' }}</td>
@@ -562,6 +583,8 @@
                 </tbody>
             </table>
             </div>
+            <!-- 페이지 나누기 (JS로 10개씩) -->
+            <div id="it-pager" style="display:flex;justify-content:center;gap:4px;margin-top:10px;flex-wrap:wrap;"></div>
             </form>
             {% else %}
             <div class="empty-state2">이번 달 IT 일정이 없습니다.</div>
@@ -738,9 +761,6 @@
             <input type="date" name="repeat_end" id="eit-repeat-end" class="form-control"></div>
         <div class="form-group"><label class="form-label">메모</label>
             <input type="text" name="notes" id="eit-notes" class="form-control"></div>
-        <div class="form-group"><label class="form-label">Jenkins Job</label>
-            <input type="text" name="jenkins_job" id="eit-jenkins" class="form-control"
-                   style="font-family:monospace;font-size:12px;"></div>
         <button type="submit" class="btn btn-primary" style="width:100%;">💾 저장</button>
     </form>
 
@@ -899,7 +919,6 @@ function fillIt(it, id) {
     f.repeat_type.value    = it.repeat_type || 'none';
     f.repeat_end.value     = it.repeat_end || '';
     f.notes.value          = it.notes || '';
-    f.jenkins_job.value    = it.jenkins_job || '';
     document.getElementById('eit-repeat-end-group').style.display =
         (it.repeat_type && it.repeat_type !== 'none') ? 'block' : 'none';
 }
@@ -1149,5 +1168,41 @@ function updateStatus(id, status) {
         if (!d.ok) alert('상태 변경 실패');
     });
 }
+// ── IT 리스트 페이지 나누기 (10개씩) ──
+const IT_PER_PAGE = 10;
+let itCurPage = 1;
+
+function renderItPage(page) {
+    const rows = Array.from(document.querySelectorAll('tr.it-row'));
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / IT_PER_PAGE));
+    itCurPage = Math.min(Math.max(1, page), pages);
+
+    // 해당 페이지 행만 표시
+    const startIdx = (itCurPage - 1) * IT_PER_PAGE;
+    const endIdx = startIdx + IT_PER_PAGE;
+    rows.forEach((r, i) => {
+        r.style.display = (i >= startIdx && i < endIdx) ? '' : 'none';
+    });
+
+    // 페이지 버튼 그리기
+    const pager = document.getElementById('it-pager');
+    if (!pager) return;
+    if (pages <= 1) { pager.innerHTML = ''; return; }
+
+    let html = '';
+    html += `<button type="button" class="pg-btn" ${itCurPage===1?'disabled':''} onclick="renderItPage(${itCurPage-1})">‹</button>`;
+    for (let p = 1; p <= pages; p++) {
+        html += `<button type="button" class="pg-btn ${p===itCurPage?'pg-active':''}" onclick="renderItPage(${p})">${p}</button>`;
+    }
+    html += `<button type="button" class="pg-btn" ${itCurPage===pages?'disabled':''} onclick="renderItPage(${itCurPage+1})">›</button>`;
+    pager.innerHTML = html;
+}
+
+// 첫 로드 시 1페이지
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.querySelector('tr.it-row')) renderItPage(1);
+});
+
 </script>
 {% endblock %}
