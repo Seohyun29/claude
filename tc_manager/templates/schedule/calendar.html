@@ -139,9 +139,19 @@
 .cal-bar small { font-weight: 400; opacity: .8; }
 /* 종류별 색 */
 .bar-it  { background: #EEF1FB; color: #1428A0; border-left: 3px solid #1428A0; }
-/* 장소별 색상 구분 (IT 일정) — bar-it 보다 뒤에 두어 우선 적용 */
-.cal-bar.it-loc-dsr  { background: #E6F1FB; color: #0C447C; border-left: 3px solid #185FA5; }  /* DSR: 파랑 */
-.cal-bar.it-loc-tera { background: #FAECE7; color: #712B13; border-left: 3px solid #993C1D; }  /* Tera: 주황 */
+/* ── IT 일정: 범례와 똑같이 '색 점 + 글자'로 표시 ──
+   배경은 연하게, 앞에 장소색 점을 찍어서 범례(DSR 파랑 / Tera 주황)와 일치시킨다 */
+.cal-bar.it-loc-dsr,
+.cal-bar.it-loc-tera {
+    background: #F7F8FA; border-left: none; color: #333;
+    display: flex; align-items: center; gap: 5px;
+}
+.cal-bar.it-loc-dsr::before,
+.cal-bar.it-loc-tera::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px;
+}
+.cal-bar.it-loc-dsr::before  { background: #185FA5; }   /* DSR: 파랑 (범례와 동일) */
+.cal-bar.it-loc-tera::before { background: #993C1D; }   /* Tera: 주황 (범례와 동일) */
 .bar-vac { background: #FFF3E0; color: #E65100; border-left: 3px solid #FF9F0A; }
 .bar-etc { background: #EAF3DE; color: #3B6D11; border-left: 3px solid #639922; }
 /* 주 경계로 잘린 막대: 잘린 쪽 모서리 각지게 + 좌측 잘리면 컬러바 제거 */
@@ -784,20 +794,12 @@
             <div style="display:flex;gap:8px;align-items:flex-end;">
                 <div style="flex:1;">
                     <label class="form-label" style="font-size:11px;">🕐 시작</label>
-                    <select name="start_time" id="evac-stime" class="form-control">
-                        {% for h in range(8, 20) %}
-                        <option value="{{ '%02d:00'|format(h) }}">{{ '%02d:00'|format(h) }}</option>
-                        {% endfor %}
-                    </select>
+                    {{ time_select('start_time', 'evac-stime', 9, 0) }}
                 </div>
                 <span style="padding-bottom:8px;color:#888;">~</span>
                 <div style="flex:1;">
                     <label class="form-label" style="font-size:11px;">🕐 종료</label>
-                    <select name="end_time" id="evac-etime" class="form-control">
-                        {% for h in range(8, 20) %}
-                        <option value="{{ '%02d:00'|format(h) }}">{{ '%02d:00'|format(h) }}</option>
-                        {% endfor %}
-                    </select>
+                    {{ time_select('end_time', 'evac-etime', 13, 0) }}
                 </div>
             </div>
         </div>
@@ -930,8 +932,8 @@ function fillVac(v, id) {
     f.start_date.value       = v.start_date || '';
     f.end_date.value         = v.end_date || '';
     // 시간 드롭다운 (반차류일 때만 의미 있음)
-    f.start_time.value       = (v.start_time || '09:00').slice(0, 2) + ':00';
-    f.end_time.value         = (v.end_time   || '13:00').slice(0, 2) + ':00';
+    setTimeFields(f, 'start_time', v.start_time || '09:00');
+    setTimeFields(f, 'end_time',   v.end_time   || '13:00');
     evacToggle(v.leave_type || 'full');
 }
 function evacToggle(val) {
@@ -950,8 +952,8 @@ function fillEtc(e, id) {
     f.title.value         = e.title || '';
     f.event_date.value    = e.event_date || '';
     f.etc_end_date.value  = e.end_date || e.event_date || '';
-    f.etc_start_time.value = e.start_time || '';
-    f.etc_end_time.value   = e.end_time || '';
+    setTimeFields(f, 'etc_start_time', e.start_time || '09:00');
+    setTimeFields(f, 'etc_end_time',   e.end_time   || '10:00');
     f.etc_location.value   = e.location || '';
     const allday = !!e.all_day;
     f.all_day.checked = allday;
@@ -1168,6 +1170,25 @@ function updateStatus(id, status) {
         if (!d.ok) alert('상태 변경 실패');
     });
 }
+// ── 'HH:MM' 문자열을 시/분 드롭다운에 나눠 채우기 ──
+function setTimeFields(form, prefix, value) {
+    const hSel = form.querySelector(`[name="${prefix}_h"]`);
+    const mSel = form.querySelector(`[name="${prefix}_m"]`);
+    if (!hSel || !mSel) return;
+    const parts = String(value || '').split(':');
+    const h = (parts[0] || '09').padStart(2, '0');
+    let   m = (parts[1] || '00').padStart(2, '0');
+    hSel.value = h;
+    // 분이 드롭다운 목록에 없으면 가장 가까운 값으로
+    if (!Array.from(mSel.options).some(o => o.value === m)) {
+        const nums = Array.from(mSel.options).map(o => parseInt(o.value, 10));
+        const target = parseInt(m, 10);
+        const near = nums.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+        m = String(near).padStart(2, '0');
+    }
+    mSel.value = m;
+}
+
 // ── IT 리스트 페이지 나누기 (10개씩) ──
 const IT_PER_PAGE = 10;
 let itCurPage = 1;
