@@ -498,6 +498,27 @@
                         <input type="text" name="etc_location" class="form-control"
                                placeholder="예: 대회의실, 온라인">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">메모</label>
+                        <input type="text" name="etc_notes" class="form-control"
+                               placeholder="특이사항 등">
+                    </div>
+                    <!-- 반복 설정 ('이틀 이상' 체크 시에는 숨김) -->
+                    <div id="etc-repeat-wrap">
+                        <div class="form-group">
+                            <label class="form-label">반복</label>
+                            <select name="etc_repeat_type" class="form-control" id="etc-repeat"
+                                    onchange="toggleEtcRepeatEnd(this.value)">
+                                <option value="none">없음</option>
+                                <option value="weekly">매주</option>
+                                <option value="biweekly">격주</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="etc-repeat-end-group" style="display:none;">
+                            <label class="form-label">반복 종료일</label>
+                            <input type="date" name="etc_repeat_end" class="form-control" id="etc-repeat-end">
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary" style="width:100%;">🟢 등록</button>
                 </form>
             </div>
@@ -680,7 +701,7 @@
                         <th style="text-align:center;width:34px;">
                             <input type="checkbox" onclick="toggleAll('etc', this.checked)">
                         </th>
-                        <th>날짜</th><th>제목</th><th>시간</th><th>장소</th><th>등록자</th>
+                        <th>날짜</th><th>제목</th><th>시간</th><th>장소</th><th>메모</th><th>등록자</th>
                         <th style="text-align:center;">수정/삭제</th></tr>
                 </thead>
                 <tbody>
@@ -703,6 +724,8 @@
                         {% else %}-{% endif %}
                     </td>
                     <td class="text-muted">{{ e.location or '-' }}</td>
+                    <td class="text-muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                        title="{{ e.notes or '' }}">{{ e.notes or '-' }}</td>
                     <td class="text-muted">{{ e.creator_name or '-' }}</td>
                     <td style="text-align:center;white-space:nowrap;">
                         <button type="button" class="btn btn-secondary btn-sm"
@@ -835,6 +858,8 @@
             </label></div>
         <div class="form-group"><label class="form-label">장소</label>
             <input type="text" name="etc_location" id="eetc-loc" class="form-control"></div>
+        <div class="form-group"><label class="form-label">메모</label>
+            <input type="text" name="etc_notes" id="eetc-notes" class="form-control"></div>
         <button type="submit" class="btn btn-primary" style="width:100%;">💾 저장</button>
     </form>
   </div>
@@ -964,6 +989,7 @@ function fillEtc(e, id) {
     setTimeFields(f, 'etc_start_time', e.start_time || '09:00');
     setTimeFields(f, 'etc_end_time',   e.end_time   || '10:00');
     f.etc_location.value   = e.location || '';
+    f.etc_notes.value      = e.notes || '';
     const allday = !!e.all_day;
     f.all_day.checked = allday;
     document.getElementById('eetc-time-group').style.display = allday ? 'none' : 'block';
@@ -1042,12 +1068,33 @@ function toggleAllDay(checked) {
     if (grp) grp.style.display = checked ? 'none' : 'block';
 }
 // ── 기타: 이틀 이상 체크 시 종료일 표시 + 하루종일/시간 숨김 ──
+// 기타: 반복 종료일 표시/숨김
+function toggleEtcRepeatEnd(val) {
+    const grp = document.getElementById('etc-repeat-end-group');
+    if (!grp) return;
+    grp.style.display = (val !== 'none') ? 'block' : 'none';
+    if (val === 'none') {
+        const e = document.getElementById('etc-repeat-end');
+        if (e) e.value = '';
+    }
+}
+
 function toggleEtcMulti(checked) {
     const endGroup    = document.getElementById('etc-end-group');
     const singleOpts  = document.getElementById('etc-single-options');
     const dateLabel   = document.getElementById('etc-date-label');
     const endInput    = document.getElementById('etc-end');
     const multiFlag   = document.getElementById('etc-multi-flag');
+    const repeatWrap  = document.getElementById('etc-repeat-wrap');
+    // 이틀 이상 기간 일정은 반복과 함께 쓰지 않음 → 반복 영역 숨김/초기화
+    if (repeatWrap) {
+        repeatWrap.style.display = checked ? 'none' : 'block';
+        if (checked) {
+            const r = document.getElementById('etc-repeat');
+            if (r) r.value = 'none';
+            toggleEtcRepeatEnd('none');
+        }
+    }
     if (checked) {
         endGroup.style.display   = 'block';
         singleOpts.style.display = 'none';   // 하루종일+시간 숨김
