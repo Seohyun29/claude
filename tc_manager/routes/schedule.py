@@ -410,6 +410,8 @@ def calendar_view():
                            year=year, month=month,
                            today=today,
                            today_str=today_str,
+                           # 등록 후 머물 탭 (it / vac / etc) — 기본은 it
+                           active_tab=request.args.get('tab', 'it'),
                            cal_weeks=cal_weeks,
                            it_list=it_list,
                            vacation_list=vacation_list,
