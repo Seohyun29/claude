@@ -1,10 +1,12 @@
 from flask import Flask
 from config import SECRET_KEY, DEBUG, HOST, PORT, UPLOAD_FOLDER
 from database import init_db
+from daily_trigger import init_scheduler
 import os
 
 def create_app():
     app = Flask(__name__)
+    init_scheduler()
     app.secret_key = SECRET_KEY
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
